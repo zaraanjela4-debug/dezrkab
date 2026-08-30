@@ -1,12 +1,43 @@
-import { useMemo, useState } from "react";
-import { reportService } from "../services/reportService";
-import { STATUS_LABEL } from "../services/rentalService";
+/**
+ * آمار و گزارش — مخصوص مدیر
+ * همه اعداد از reportService می‌آیند؛ PDF و JSON هم از همین محاسبات خروجی می‌گیرند
+ */
+import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { reportService, lastMonthRange, thisMonthRange, thisWeekRange, todayRange, yesterdayRange } from "../services/reportService";
+import type { Analytics } from "../services/reportService";
+import { exportAIJSON, REPORT_TYPE_LABEL } from "../services/exportService";
+import type { ReportType } from "../services/exportService";
 import { useDB } from "../storage/storage";
-import { faNum, fmtDateFull, fmtDateTime, money, startOfDay } from "../utils/format";
-import { Badge, Empty } from "../ui/kit";
-import { IconChart, IconClock } from "../ui/icons";
+import { accountKindLabel, faNum, jalaliDate, money, startOfDay } from "../utils/format";
+import { Badge, Btn, Modal, useToast } from "../ui/kit";
+import PrintReport from "../ui/PrintReport";
+import {
+  IconBike,
+  IconCash,
+  IconChart,
+  IconClock,
+  IconDownload,
+  IconFileText,
+  IconGift,
+  IconPrint,
+  IconTimer,
+  IconUsers,
+  IconWallet,
+  IconWrench,
+  IconX,
+} from "../ui/icons";
 
-type Preset = "today" | "yesterday" | "7d" | "month" | "custom";
+type Preset = "today" | "yesterday" | "week" | "month" | "lastMonth" | "custom";
+type DetailTab =
+  | "daily"
+  | "hourly"
+  | "weekday"
+  | "duration"
+  | "categories"
+  | "customers"
+  | "payments"
+  | "discount"
+  | "maintenance";
 
 function toInput(ts: number): string {
   const d = new Date(ts);
@@ -16,60 +47,62 @@ function toInput(ts: number): string {
 
 export default function Reports() {
   const db = useDB();
+  const toast = useToast();
   const [preset, setPreset] = useState<Preset>("today");
   const [fromStr, setFromStr] = useState(() => toInput(startOfDay(Date.now()) - 6 * 86_400_000));
   const [toStr, setToStr] = useState(() => toInput(Date.now()));
+  const [detail, setDetail] = useState<DetailTab>("daily");
+  const [pdfPicker, setPdfPicker] = useState(false);
+  const [pdfType, setPdfType] = useState<ReportType>("full");
+  const [printJob, setPrintJob] = useState<ReportType | null>(null);
 
   const [start, end] = useMemo((): [number, number] => {
     switch (preset) {
       case "today":
-        return reportService.todayRange();
+        return todayRange();
       case "yesterday":
-        return reportService.yesterdayRange();
-      case "7d":
-        return reportService.last7Range();
+        return yesterdayRange();
+      case "week":
+        return thisWeekRange();
       case "month":
-        return reportService.thisMonthRange();
+        return thisMonthRange();
+      case "lastMonth":
+        return lastMonthRange();
       case "custom": {
         const s = new Date(fromStr + "T00:00").getTime();
         const e = new Date(toStr + "T23:59").getTime() + 59_000;
-        if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return reportService.todayRange();
+        if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return todayRange();
         return [s, e];
       }
     }
   }, [preset, fromStr, toStr]);
 
-  const rep = useMemo(() => reportService.build(db, start, end), [db, start, end]);
-  const maxRev = Math.max(1, ...rep.daily.map((d) => d.revenue));
+  const a = useMemo(() => reportService.buildAnalytics(db, start, end), [db, start, end]);
 
-  const tiles: Array<{ label: string; value: string; tone?: "ok" | "danger" | "warn" | "brand" }> = [
-    { label: "درآمد اجاره", value: money(rep.revenue), tone: "ok" },
-    { label: "تعداد اجاره", value: faNum(rep.rentalCount), tone: "brand" },
-    { label: "تکمیل‌شده", value: faNum(rep.completedCount) },
-    { label: "لغوشده", value: faNum(rep.cancelledCount), tone: "danger" },
-    { label: "جریمه تأخیر", value: money(rep.lateFees), tone: "warn" },
-    { label: "تخفیفها", value: money(rep.discounts) },
-    { label: "هزینه‌ها", value: money(rep.expenses), tone: "danger" },
-    { label: "خالص (درآمد − هزینه)", value: money(rep.net), tone: rep.net >= 0 ? "ok" : "danger" },
-  ];
+  const doJSON = () => {
+    const name = exportAIJSON(db, start, end);
+    toast.push("ok", `فایل ${name} دانلود شد — آماده برای تحلیل هوش مصنوعی`);
+  };
 
   return (
-    <div className="space-y-4">
-      <div className="anim-up card flex flex-wrap items-center gap-2 p-3.5">
-        <div className="flex rounded-xl border border-linedeep p-1">
+    <div className="space-y-3.5">
+      {/* نوار بازه + خروجی‌ها */}
+      <div className="anim-up card flex flex-wrap items-center gap-2 p-2.5">
+        <div className="flex rounded-xl border border-linedeep p-0.5">
           {(
             [
               ["today", "امروز"],
               ["yesterday", "دیروز"],
-              ["7d", "۷ روز"],
+              ["week", "این هفته"],
               ["month", "این ماه"],
-              ["custom", "سفارشی"],
+              ["lastMonth", "ماه قبل"],
+              ["custom", "بازه دلخواه"],
             ] as Array<[Preset, string]>
           ).map(([p, label]) => (
             <button
               key={p}
               onClick={() => setPreset(p)}
-              className={`cursor-pointer rounded-lg px-3.5 py-1.5 text-xs font-bold transition-colors ${
+              className={`cursor-pointer rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
                 preset === p ? "bg-coal text-white" : "text-inksoft hover:bg-black/5"
               }`}
             >
@@ -84,140 +117,480 @@ export default function Reports() {
             <input type="date" className="inp num w-36" dir="ltr" value={toStr} onChange={(e) => setToStr(e.target.value)} />
           </div>
         )}
-        <span className="ms-auto text-[11px] font-bold text-inkmute">
-          {fmtDateFull(start)} تا {fmtDateFull(end - 1)}
+        <span className="num text-[11px] font-bold text-inkmute">
+          {jalaliDate(start)} تا {jalaliDate(end - 1)}
         </span>
+        <div className="ms-auto flex gap-2">
+          <Btn variant="dark" size="sm" onClick={() => setPdfPicker(true)}>
+            <IconPrint size={14} />
+            خروجی PDF
+          </Btn>
+          <Btn size="sm" onClick={doJSON}>
+            <IconFileText size={14} />
+            خروجی JSON برای هوش مصنوعی
+          </Btn>
+        </div>
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        {tiles.map((t, i) => (
-          <div key={t.label} className="anim-up card p-3.5" style={{ animationDelay: `${i * 40}ms` }}>
-            <p className="text-[11px] font-bold text-inkmute">{t.label}</p>
-            <p
-              className={`num mt-1.5 font-display text-xl ${
-                t.tone === "ok" ? "text-ok" : t.tone === "danger" ? "text-danger" : t.tone === "warn" ? "text-warn" : t.tone === "brand" ? "text-branddeep" : "text-ink"
+      {/* خلاصه مدیریتی */}
+      <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
+        <Tile label="درآمد" value={money(a.summary.revenue)} tone="text-ok" delay={0} />
+        <Tile label="تعداد اجاره" value={faNum(a.summary.rentalCount)} tone="text-branddeep" delay={40} />
+        <Tile label="میانگین اجاره" value={a.summary.avgRental !== null ? money(a.summary.avgRental) : "—"} tone="text-ink" delay={80} />
+        <Tile label="مشتریان فعال" value={faNum(a.summary.activeCustomers)} tone="text-ink" delay={120} />
+        <Tile label="نرخ مشتری تکراری" value={a.summary.repeatRate !== null ? `${faNum(a.summary.repeatRate)}٪` : "—"} tone="text-ink" delay={160} />
+        <Tile label="دسته محبوب" value={a.summary.topCategory ?? "—"} tone="text-ink" delay={200} small />
+        <Tile label="شلوغ‌ترین ساعت" value={a.summary.busiestHour !== null ? `${faNum(a.summary.busiestHour)}:۰۰` : "—"} tone="text-ink" delay={240} />
+        <Tile label="شلوغ‌ترین روز" value={a.summary.busiestWeekday ?? "—"} tone="text-ink" delay={280} />
+        <Tile label="تخفیف‌ها" value={money(a.summary.discounts)} tone="text-warn" delay={320} />
+        <Tile label="جریمه تأخیر" value={money(a.summary.lateFees)} tone="text-danger" delay={360} />
+      </div>
+
+      {/* تب‌های جزئیات */}
+      <div className="anim-up card overflow-hidden">
+        <div className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
+          {(
+            [
+              ["daily", "روزانه", <IconChart key="i" size={13} />],
+              ["hourly", "ساعتی", <IconClock key="i" size={13} />],
+              ["weekday", "روزهای هفته", <IconChart key="i" size={13} />],
+              ["duration", "مدت‌ها", <IconTimer key="i" size={13} />],
+              ["categories", "دسته‌ها", <IconBike key="i" size={13} />],
+              ["customers", "مشتریان", <IconUsers key="i" size={13} />],
+              ["payments", "پرداخت‌ها", <IconWallet key="i" size={13} />],
+              ["discount", "تخفیف و تأخیر", <IconGift key="i" size={13} />],
+              ["maintenance", "تعمیرات", <IconWrench key="i" size={13} />],
+            ] as Array<[DetailTab, string, ReactNode]>
+          ).map(([id, label, icon]) => (
+            <button
+              key={id}
+              onClick={() => setDetail(id)}
+              className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-3 py-1.5 text-[11px] font-bold transition-colors ${
+                detail === id ? "bg-brandsoft text-branddeep" : "text-inksoft hover:bg-black/5"
               }`}
             >
-              {t.value}
-            </p>
-          </div>
-        ))}
+              {icon}
+              {label}
+            </button>
+          ))}
+        </div>
+
+        <div key={detail} className="anim-up p-3.5">
+          {detail === "daily" && <DailyView a={a} />}
+          {detail === "hourly" && <HourlyView a={a} />}
+          {detail === "weekday" && <WeekdayView a={a} />}
+          {detail === "duration" && <DurationView a={a} />}
+          {detail === "categories" && <CategoriesView a={a} />}
+          {detail === "customers" && <CustomersView a={a} />}
+          {detail === "payments" && <PaymentsView a={a} />}
+          {detail === "discount" && <DiscountLateView a={a} />}
+          {detail === "maintenance" && <MaintenanceView a={a} />}
+        </div>
       </div>
 
-      <div className="grid items-start gap-4 xl:grid-cols-12">
-        {/* روند روزانه */}
-        <section className="anim-up xl:col-span-5 card p-4">
-          <h3 className="flex items-center gap-2 font-display text-base text-ink">
-            <IconChart size={17} className="text-branddeep" />
-            روند درآمد روزانه
-          </h3>
-          <div className="mt-4 flex h-40 items-end gap-1.5">
-            {rep.daily.map((d) => (
-              <div key={d.day} className="group flex h-full flex-1 flex-col items-center justify-end gap-1" title={`${d.label}: ${money(d.revenue)}`}>
-                <span className="num text-[9px] font-bold text-inkmute opacity-0 transition-opacity group-hover:opacity-100">
-                  {d.revenue > 0 ? faNum(Math.round(d.revenue / 1000)) + "ه" : ""}
-                </span>
-                <div
-                  className="w-full rounded-t-md bg-brand/80 transition-all duration-300 group-hover:bg-brand"
-                  style={{ height: `${Math.max(3, (d.revenue / maxRev) * 100)}%` }}
-                />
-                <span className="num text-[9px] text-inkmute">{d.label}</span>
-              </div>
+      {/* انتخاب نوع PDF */}
+      <Modal open={pdfPicker} onClose={() => setPdfPicker(false)} title="خروجی PDF — انتخاب گزارش">
+        <p className="mb-3 text-xs text-inksoft">
+          بازه: <b className="num">{jalaliDate(start)} تا {jalaliDate(end - 1)}</b> — گزارش با همین بازه تولید می‌شود
+        </p>
+        <div className="space-y-1.5">
+          {(Object.keys(REPORT_TYPE_LABEL) as ReportType[]).map((t) => (
+            <button
+              key={t}
+              onClick={() => setPdfType(t)}
+              className={`flex w-full cursor-pointer items-center justify-between rounded-xl border-2 px-3.5 py-2.5 text-sm font-bold transition-all ${
+                pdfType === t ? "border-brand bg-brandsoft text-branddeep" : "border-line text-inksoft hover:border-linedeep"
+              }`}
+            >
+              {REPORT_TYPE_LABEL[t]}
+              {pdfType === t && <Badge tone="brand">انتخاب شد</Badge>}
+            </button>
+          ))}
+        </div>
+        <Btn
+          className="mt-4 w-full"
+          onClick={() => {
+            setPdfPicker(false);
+            setPrintJob(pdfType);
+          }}
+        >
+          <IconPrint size={16} />
+          مشاهده و چاپ گزارش
+        </Btn>
+      </Modal>
+
+      {/* پیش‌نمایش و چاپ */}
+      {printJob && (
+        <div className="fixed inset-0 z-[70] flex flex-col bg-coal/80 backdrop-blur-sm">
+          <div className="print-toolbar flex items-center justify-between bg-coal px-4 py-2.5 text-white">
+            <p className="font-display text-base">{REPORT_TYPE_LABEL[printJob]} — {jalaliDate(start)} تا {jalaliDate(end - 1)}</p>
+            <div className="flex gap-2">
+              <Btn size="sm" onClick={() => window.print()}>
+                <IconPrint size={14} />
+                چاپ / ذخیره PDF
+              </Btn>
+              <Btn size="sm" variant="ghost" className="text-white hover:bg-white/10" onClick={() => setPrintJob(null)}>
+                <IconX size={14} />
+                بستن
+              </Btn>
+            </div>
+          </div>
+          <div className="flex-1 overflow-y-auto py-6">
+            <PrintReport type={printJob} a={a} db={db} />
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* --------------------------------- نماها --------------------------------- */
+
+function Tile({ label, value, tone, delay, small }: { label: string; value: string; tone: string; delay: number; small?: boolean }) {
+  return (
+    <div className="anim-up card px-3 py-2.5" style={{ animationDelay: `${delay}ms` }}>
+      <p className="text-[10px] font-bold text-inkmute">{label}</p>
+      <p className={`num mt-1 truncate font-display ${small ? "text-sm leading-6" : "text-lg"} ${tone}`}>{value}</p>
+    </div>
+  );
+}
+
+function Tbl({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+  return (
+    <div className="overflow-x-auto">
+      <table className="w-full text-xs">
+        <thead>
+          <tr className="border-b border-line text-[10px] font-bold text-inkmute">
+            {head.map((h) => (
+              <th key={h} className="whitespace-nowrap px-2.5 py-2 text-start">
+                {h}
+              </th>
             ))}
-          </div>
-          <div className="mt-3 grid grid-cols-3 gap-2 border-t border-line pt-3 text-center">
-            <div>
-              <p className="num font-display text-lg text-ink">{faNum(rep.rentalCount)}</p>
-              <p className="text-[10px] font-bold text-inkmute">اجاره ثبت‌شده</p>
-            </div>
-            <div>
-              <p className="num font-display text-lg text-ink">{faNum(rep.activeNow)}</p>
-              <p className="text-[10px] font-bold text-inkmute">در جریان (الان)</p>
-            </div>
-            <div>
-              <p className="num font-display text-lg text-ink">{faNum(rep.settledCount)}</p>
-              <p className="text-[10px] font-bold text-inkmute">تسویه‌شده در بازه</p>
-            </div>
-          </div>
-        </section>
-
-        {/* عملکرد دسته‌ها */}
-        <section className="anim-up xl:col-span-4 card p-4" style={{ animationDelay: "60ms" }}>
-          <h3 className="font-display text-base text-ink">عملکرد دسته‌ها</h3>
-          {rep.byCategory.length === 0 ? (
-            <Empty icon={<IconChart size={24} />} text="در این بازه اجاره‌ای نیست" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-line">
+          {rows.length === 0 ? (
+            <tr>
+              <td colSpan={head.length} className="py-8 text-center text-xs font-bold text-inkmute">
+                در این بازه داده‌ای نیست
+              </td>
+            </tr>
           ) : (
-            <ul className="mt-3 space-y-3">
-              {rep.byCategory.map((c) => {
-                const max = Math.max(1, ...rep.byCategory.map((x) => x.revenue));
-                return (
-                  <li key={c.code}>
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="flex items-center gap-2 font-extrabold text-ink">
-                        <span className="grid size-6 place-items-center rounded-md bg-coal font-display text-[11px] text-white">{c.code}</span>
-                        {c.name}
-                        <span className="num text-[10px] font-bold text-inkmute">{faNum(c.units)} دستگاه-اجاره</span>
-                      </span>
-                      <span className="num font-bold text-inksoft">{money(c.revenue)}</span>
-                    </div>
-                    <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-black/5">
-                      <div className="h-full rounded-full bg-brand transition-all duration-500" style={{ width: `${(c.revenue / max) * 100}%` }} />
-                    </div>
-                  </li>
-                );
-              })}
-            </ul>
+            rows.map((r, i) => (
+              <tr key={i} className="transition-colors hover:bg-black/[0.02]">
+                {r.map((c, j) => (
+                  <td key={j} className="num whitespace-nowrap px-2.5 py-2 text-ink">
+                    {c}
+                  </td>
+                ))}
+              </tr>
+            ))
           )}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 
-          <h3 className="mt-5 border-t border-line pt-4 font-display text-base text-ink">مشتریان برتر</h3>
-          {rep.topCustomers.length === 0 ? (
-            <p className="mt-2 text-xs text-inkmute">پرداختی در این بازه نیست</p>
-          ) : (
-            <ul className="mt-2 space-y-1.5">
-              {rep.topCustomers.map((c, i) => (
-                <li key={c.id} className="flex items-center gap-2.5 rounded-xl bg-black/[0.03] px-3 py-2">
-                  <span className={`grid size-7 place-items-center rounded-full font-display text-xs ${i === 0 ? "bg-brand text-white" : "bg-black/10 text-inksoft"}`}>
-                    {faNum(i + 1)}
-                  </span>
-                  <span className="flex-1 text-xs font-extrabold text-ink">{c.name}</span>
-                  <span className="num text-[11px] text-inkmute">{faNum(c.count)} اجاره</span>
-                  <span className="num text-xs font-bold text-ok">{money(c.amount)}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+function Bar({ pct, tone = "bg-brand" }: { pct: number; tone?: string }) {
+  return (
+    <span className="inline-block h-2 w-24 overflow-hidden rounded-full bg-black/5 align-middle">
+      <span className={`block h-full rounded-full ${tone} transition-all duration-500`} style={{ width: `${Math.min(100, pct)}%` }} />
+    </span>
+  );
+}
 
-        {/* اجاره‌های بازه */}
-        <section className="anim-up xl:col-span-3 card overflow-hidden" style={{ animationDelay: "120ms" }}>
-          <div className="border-b border-line px-4 py-3">
-            <h3 className="font-display text-base text-ink">اجاره‌های بازه</h3>
-          </div>
-          {rep.recentRentals.length === 0 ? (
-            <Empty icon={<IconClock size={24} />} text="موردی نیست" />
+function DailyView({ a }: { a: Analytics }) {
+  return (
+    <Tbl
+      head={["روز", "اجاره", "دوچرخه", "درآمد", "تخفیف", "جریمه", "لغو", "تکمیل", "میانگین مدت"]}
+      rows={a.daily.map((d) => [
+        jalaliDate(d.day),
+        faNum(d.rentals),
+        faNum(d.bikes),
+        <b key="r" className="text-ok">{money(d.revenue)}</b>,
+        d.discounts > 0 ? money(d.discounts) : "—",
+        d.lateFees > 0 ? <span key="l" className="text-danger">{money(d.lateFees)}</span> : "—",
+        d.cancellations > 0 ? <span key="c" className="text-danger">{faNum(d.cancellations)}</span> : "—",
+        faNum(d.completed),
+        d.avgDuration !== null ? `${faNum(d.avgDuration)} ساعت` : "—",
+      ])}
+    />
+  );
+}
+
+function HourlyView({ a }: { a: Analytics }) {
+  const maxRev = Math.max(1, ...a.hourly.map((h) => h.revenue));
+  const maxRent = Math.max(1, ...a.hourly.map((h) => h.rentals));
+  return (
+    <div className="space-y-3">
+      <p className="text-[11px] font-bold text-inksoft">
+        بازه اوج: <span className="text-branddeep">{a.summary.peakWindow ?? "—"}</span>
+        {a.summary.busiestHour !== null && <> — شلوغ‌ترین ساعت: {faNum(a.summary.busiestHour)}:۰۰</>}
+      </p>
+      <div className="grid gap-x-6 lg:grid-cols-2">
+        <Tbl
+          head={["ساعت", "اجاره", "", "دوچرخه", "درآمد", "میانگین", "لغو"]}
+          rows={a.hourly.map((h) => [
+            <span key="h" className={`font-bold ${h.hour === a.summary.busiestHour ? "text-branddeep" : ""}`}>
+              {faNum(h.hour)}:۰۰–{faNum((h.hour + 1) % 24)}:۰۰
+            </span>,
+            faNum(h.rentals),
+            <Bar key="b" pct={(h.rentals / maxRent) * 100} />,
+            faNum(h.bikes),
+            money(h.revenue),
+            h.avgQty !== null ? faNum(h.avgQty) : "—",
+            h.cancellations > 0 ? faNum(h.cancellations) : "—",
+          ])}
+        />
+        <div className="flex items-end gap-1 rounded-xl border border-line p-3">
+          {a.hourly.map((h) => (
+            <div key={h.hour} className="group flex h-40 flex-1 flex-col items-center justify-end gap-1" title={`${faNum(h.hour)}:۰۰ — ${money(h.revenue)}`}>
+              <div
+                className={`w-full rounded-t transition-all ${h.hour === a.summary.busiestHour ? "bg-branddeep" : "bg-brand/70 group-hover:bg-brand"}`}
+                style={{ height: `${Math.max(2, (h.revenue / maxRev) * 100)}%` }}
+              />
+              <span className="num text-[8px] text-inkmute">{faNum(h.hour)}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function WeekdayView({ a }: { a: Analytics }) {
+  const max = Math.max(1, ...a.weekdays.map((w) => w.revenue));
+  const busiest = [...a.weekdays].sort((x, y) => y.rentals - x.rentals)[0];
+  return (
+    <div className="space-y-2">
+      <p className="text-[11px] font-bold text-inksoft">
+        شلوغ‌ترین روز: <span className="text-branddeep">{busiest && busiest.rentals > 0 ? busiest.name : "—"}</span>
+      </p>
+      <ul className="space-y-2">
+        {a.weekdays.map((w) => (
+          <li key={w.weekday} className="flex items-center gap-3">
+            <span className="w-20 text-xs font-extrabold text-ink">{w.name}</span>
+            <Bar pct={(w.revenue / max) * 100} />
+            <span className="num text-[11px] text-inksoft">
+              {faNum(w.rentals)} اجاره · {faNum(w.bikes)} دوچرخه · {money(w.revenue)}
+            </span>
+            <span className="num ms-auto text-[11px] text-inkmute">
+              میانگین {w.avgValue !== null ? money(w.avgValue) : "—"} · تأخیر {w.lateRate !== null ? `${faNum(w.lateRate)}٪` : "—"}
+            </span>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+function DurationView({ a }: { a: Analytics }) {
+  const popular = [...a.durations].sort((x, y) => y.rentals - x.rentals)[0];
+  return (
+    <div className="space-y-2">
+      {popular && (
+        <p className="text-[11px] font-bold text-inksoft">
+          محبوب‌ترین مدت: <span className="text-branddeep">{popular.label}</span> ({faNum(popular.rentals)} اجاره)
+        </p>
+      )}
+      <Tbl
+        head={["مدت", "اجاره", "درصد", "", "دوچرخه", "درآمد"]}
+        rows={a.durations.map((d) => [
+          <b key="l">{d.label}</b>,
+          faNum(d.rentals),
+          d.percent !== null ? `${faNum(d.percent)}٪` : "—",
+          <Bar key="b" pct={d.percent ?? 0} tone="bg-ok" />,
+          faNum(d.bikes),
+          money(d.revenue),
+        ])}
+      />
+    </div>
+  );
+}
+
+function CategoriesView({ a }: { a: Analytics }) {
+  return (
+    <Tbl
+      head={["کد", "دسته", "موجودی", "اجاره‌شده", "ساعت اجاره", "درآمد", "میانگین مدت", "میانگین تعداد", "تعمیرات", "بهره‌وری"]}
+      rows={a.categories.map((c) => [
+        <span key="c" className="grid size-7 place-items-center rounded-md bg-coal font-display text-xs text-white">{c.code}</span>,
+        <b key="n">{c.name}</b>,
+        faNum(c.inventory),
+        faNum(c.unitsRented),
+        faNum(c.rentalHours),
+        money(c.revenue),
+        c.avgDuration !== null ? `${faNum(c.avgDuration)} س` : "—",
+        c.avgQty !== null ? faNum(c.avgQty) : "—",
+        c.maintenanceCount > 0 ? <span key="m" className="text-[#b45309]">{faNum(c.maintenanceCount)}</span> : "—",
+        c.utilization !== null ? (
+          <span key="u" className="flex items-center gap-2">
+            <Bar pct={c.utilization} tone="bg-branddeep" />
+            <span className="num font-bold">{faNum(c.utilization)}٪</span>
+          </span>
+        ) : (
+          <Badge key="u" tone="neutral">داده ناکافی</Badge>
+        ),
+      ])}
+    />
+  );
+}
+
+function CustomersView({ a }: { a: Analytics }) {
+  return (
+    <div className="space-y-3">
+      <div className="grid gap-2 sm:grid-cols-4">
+        <MiniStat label="مشتری جدید" v={faNum(a.retention.newCustomers)} />
+        <MiniStat label="مشتری بازگشتی" v={faNum(a.retention.returningCustomers)} />
+        <MiniStat label="نرخ تکرار" v={a.retention.repeatRate !== null ? `${faNum(a.retention.repeatRate)}٪` : "—"} />
+        <MiniStat label="میانگین فاصله اجاره‌ها" v={a.retention.avgGapDays !== null ? `${faNum(a.retention.avgGapDays)} روز` : "—"} />
+      </div>
+      <Tbl
+        head={["مشتری", "تلفن", "اولین", "آخرین", "تکمیل", "ساعت", "دوچرخه", "پرداخت", "تأخیر", "جریمه", "تخفیف", "پاداش"]}
+        rows={a.customers.map((c) => [
+          <b key="n">{c.name}</b>,
+          <span key="p" dir="ltr">{c.phone}</span>,
+          jalaliDate(c.firstRentalAt),
+          jalaliDate(c.lastRentalAt),
+          faNum(c.completedRentals),
+          faNum(c.totalHours),
+          faNum(c.totalUnits),
+          money(c.spending),
+          c.lateCount > 0 ? <span key="l" className="text-danger">{faNum(c.lateCount)}</span> : "—",
+          c.lateFees > 0 ? money(c.lateFees) : "—",
+          c.discounts > 0 ? money(c.discounts) : "—",
+          c.rewardEligible ? <Badge key="r" tone="ok">واجد</Badge> : <span key="r" className="num text-inkmute">{faNum(c.rewardHours)}/{faNum(4)}</span>,
+        ])}
+      />
+    </div>
+  );
+}
+
+function MiniStat({ label, v }: { label: string; v: string }) {
+  return (
+    <div className="rounded-xl border border-line px-3 py-2">
+      <p className="text-[10px] font-bold text-inkmute">{label}</p>
+      <p className="num mt-0.5 font-display text-base text-ink">{v}</p>
+    </div>
+  );
+}
+
+function PaymentsView({ a }: { a: Analytics }) {
+  const total = a.payments.reduce((s, p) => s + p.amount, 0);
+  return (
+    <div className="space-y-3">
+      <div className="flex h-3 overflow-hidden rounded-full bg-black/5">
+        {a.payments.map((p, i) => (
+          <span
+            key={p.accountId}
+            className={i === 0 ? "bg-brand" : i === 1 ? "bg-ok" : i === 2 ? "bg-coal" : "bg-inkmute"}
+            style={{ width: `${total > 0 ? (p.amount / total) * 100 : 0}%` }}
+            title={`${p.name}: ${money(p.amount)}`}
+          />
+        ))}
+      </div>
+      <Tbl
+        head={["روش", "حساب", "تراکنش", "مبلغ", "سهم از دریافتی"]}
+        rows={a.payments.map((p) => [
+          <b key="k">{accountKindLabel(p.kind)}</b>,
+          p.name,
+          faNum(p.count),
+          money(p.amount),
+          p.percent !== null ? (
+            <span key="p" className="flex items-center gap-2">
+              <Bar pct={p.percent} tone="bg-ok" />
+              {faNum(p.percent)}٪
+            </span>
           ) : (
-            <ul className="max-h-[420px] divide-y divide-line overflow-y-auto">
-              {rep.recentRentals.map((r) => (
-                <li key={r.id} className="px-4 py-2.5">
-                  <div className="flex items-center justify-between">
-                    <span className="num font-display text-xs text-inksoft">#{faNum(r.number)}</span>
-                    <Badge tone={r.status === "CANCELLED" ? "danger" : r.status === "SETTLED" || r.status === "COMPLETED" ? "ok" : "brand"}>
-                      {STATUS_LABEL[r.status]}
-                    </Badge>
-                  </div>
-                  <p className="mt-1 truncate text-xs font-bold text-ink">
-                    {db.customers.find((c) => c.id === r.customerId)?.name}
-                    <span className="ms-1.5 font-normal text-inkmute">{r.items.map((i) => `${faNum(i.qty)}×${i.name}`).join("+")}</span>
-                  </p>
-                  <div className="num mt-0.5 flex items-center justify-between text-[10px] text-inkmute">
-                    <span>{fmtDateTime(r.createdAt)}</span>
-                    <span className="font-bold text-ink">{money(r.total)}</span>
-                  </div>
-                </li>
-              ))}
-            </ul>
-          )}
-        </section>
+            "—"
+          ),
+        ])}
+      />
+      <div className="grid gap-2 sm:grid-cols-3">
+        <MiniStat label="جمع دریافتی بازه" v={money(a.summary.received)} />
+        <MiniStat label="مانده‌های باز" v={money(a.summary.outstanding)} />
+        <MiniStat label="درآمد اجاره" v={money(a.summary.revenue)} />
+      </div>
+    </div>
+  );
+}
+
+function DiscountLateView({ a }: { a: Analytics }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-ink">
+          <IconGift size={14} className="text-branddeep" />
+          تخفیف‌ها
+        </h4>
+        <Tbl
+          head={["نرخ", "اجاره", "مبلغ"]}
+          rows={a.discounts.distribution.map((d) => [`${faNum(d.rate)}٪`, faNum(d.count), money(d.amount)])}
+        />
+        <div className="mt-2 space-y-1 text-[11px] font-bold text-inksoft">
+          <p>جمع تخفیف: <span className="num text-ink">{money(a.discounts.totalDiscount)}</span></p>
+          <p>پاداش مشتری مصرف‌شده: <span className="num text-ink">{faNum(a.discounts.rewardUsed)} مورد</span></p>
+          <p>درآمد قبل از تخفیف: <span className="num text-ink">{money(a.discounts.beforeRevenue)}</span> — بعد از تخفیف: <span className="num text-ink">{money(a.discounts.afterRevenue)}</span></p>
+        </div>
+      </div>
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-ink">
+          <IconClock size={14} className="text-danger" />
+          تأخیر در برگشت
+        </h4>
+        <div className="grid grid-cols-2 gap-2">
+          <MiniStat label="اجاره دارای تأخیر" v={faNum(a.late.lateRentals)} />
+          <MiniStat label="نرخ تأخیر" v={a.late.latePercent !== null ? `${faNum(a.late.latePercent)}٪` : "—"} />
+          <MiniStat label="دیرکرد واقعی" v={`${faNum(a.late.actualMinutes)} دقیقه`} />
+          <MiniStat label="بخشوده" v={`${faNum(a.late.waivedMinutes)} دقیقه`} />
+          <MiniStat label="قابل محاسبه" v={`${faNum(a.late.chargeableMinutes)} دقیقه`} />
+          <MiniStat label="جریمه دریافتی" v={money(a.late.fees)} />
+        </div>
+        <p className="num mt-2 text-[11px] font-bold text-inksoft">
+          میانگین تأخیر: {a.late.avgDelay !== null ? `${faNum(a.late.avgDelay)} دقیقه` : "—"}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+function MaintenanceView({ a }: { a: Analytics }) {
+  return (
+    <div className="grid gap-4 lg:grid-cols-2">
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-ink">
+          <IconWrench size={14} className="text-branddeep" />
+          تعمیرات بازه
+        </h4>
+        <div className="grid grid-cols-2 gap-2">
+          <MiniStat label="تعداد" v={faNum(a.maintenance.count)} />
+          <MiniStat label="هنوز باز" v={faNum(a.maintenance.openCount)} />
+          <MiniStat label="مجموع زمان" v={`${faNum(a.maintenance.totalHours)} ساعت`} />
+          <MiniStat label="هزینه" v={money(a.maintenance.totalCost)} />
+        </div>
+        {a.maintenance.byCategory.length > 0 && (
+          <p className="mt-2 text-[11px] font-bold text-inksoft">
+            دسته‌های درگیر: {a.maintenance.byCategory.map((c) => `${c.code} (${faNum(c.count)})`).join("، ")}
+          </p>
+        )}
+      </div>
+      <div>
+        <h4 className="mb-2 flex items-center gap-1.5 text-xs font-extrabold text-ink">
+          <IconBike size={14} className="text-branddeep" />
+          بهره‌وری موجودی
+        </h4>
+        <Tbl
+          head={["دسته", "موجودی", "ساعت اجاره", "بهره‌وری"]}
+          rows={a.categories.map((c) => [
+            `${c.code} — ${c.name}`,
+            faNum(c.inventory),
+            faNum(c.rentalHours),
+            c.utilization !== null ? `${faNum(c.utilization)}٪` : <Badge key="b" tone="neutral">داده ناکافی</Badge>,
+          ])}
+        />
+        <p className="mt-2 text-[10px] leading-5 text-inkmute">
+          بهره‌وری = ساعت‌های اجاره ÷ (موجودی × روز × ۲۴). وقتی داده کافی نباشد هیچ عددی ساخته نمی‌شود.
+        </p>
       </div>
     </div>
   );

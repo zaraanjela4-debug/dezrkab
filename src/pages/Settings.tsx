@@ -1,25 +1,30 @@
-import { useState, type ReactNode } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { authService } from "../services/authService";
+import { backupService } from "../services/backupService";
+import type { BackupFile, BackupPreview } from "../services/backupService";
 import { inventoryService } from "../services/inventoryService";
 import { settingsService } from "../services/settingsService";
 import { availabilityService } from "../services/availabilityService";
 import { useDB } from "../storage/storage";
-import { faNum, fmtDateTime, money } from "../utils/format";
+import { faNum, fmtDateTime, jalaliDate, money } from "../utils/format";
 import { Badge, Btn, Modal, useToast } from "../ui/kit";
 import {
   IconAlert,
   IconBox,
   IconCheck,
+  IconDatabase,
+  IconDownload,
   IconGear,
   IconHistory,
   IconMinus,
   IconPlus,
+  IconUpload,
   IconUser,
   IconWallet,
   IconX,
 } from "../ui/icons";
 
-type Tab = "cats" | "rules" | "accounts" | "users" | "general";
+type Tab = "cats" | "rules" | "accounts" | "users" | "general" | "backup";
 
 export default function Settings() {
   const [tab, setTab] = useState<Tab>("cats");
@@ -30,6 +35,7 @@ export default function Settings() {
     { id: "accounts", label: "حساب‌های پرداخت", icon: <IconWallet size={15} /> },
     { id: "users", label: "کاربران", icon: <IconUser size={15} /> },
     { id: "general", label: "عمومی و تاریخچه", icon: <IconHistory size={15} /> },
+    { id: "backup", label: "پشتیبان‌گیری و بازیابی", icon: <IconDatabase size={15} /> },
   ];
 
   return (
@@ -55,6 +61,7 @@ export default function Settings() {
         {tab === "accounts" && <AccountsTab />}
         {tab === "users" && <UsersTab />}
         {tab === "general" && <GeneralTab />}
+        {tab === "backup" && <BackupTab />}
       </div>
     </div>
   );
@@ -605,6 +612,171 @@ function GeneralTab() {
           </Btn>
         </div>
       </Modal>
+    </div>
+  );
+}
+
+/* ------------------------- پشتیبان‌گیری و بازیابی ------------------------- */
+
+function BackupTab() {
+  const toast = useToast();
+  const fileRef = useRef<HTMLInputElement>(null);
+  const [pending, setPending] = useState<{ file: BackupFile; preview: BackupPreview } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [, force] = useState(0);
+
+  const last = backupService.lastBackupInfo();
+
+  const makeBackup = () => {
+    try {
+      const name = backupService.createAndDownload();
+      toast.push("ok", `پشتیبان کامل ساخته و دانلود شد — ${name}`);
+      force((x) => x + 1);
+    } catch (e) {
+      toast.push("err", e instanceof Error ? e.message : "ایجاد پشتیبان ناموفق بود");
+    }
+  };
+
+  const downloadLatest = () => {
+    try {
+      const name = backupService.downloadLatest();
+      toast.push("ok", `فایل ${name} دانلود شد`);
+    } catch (e) {
+      toast.push("err", e instanceof Error ? e.message : "دانلود ناموفق بود");
+    }
+  };
+
+  const onPickFile = (f: File | null) => {
+    if (!f) return;
+    setBusy(true);
+    const reader = new FileReader();
+    reader.onload = () => {
+      try {
+        const parsed: unknown = JSON.parse(String(reader.result));
+        const file = backupService.validate(parsed);
+        setPending({ file, preview: backupService.preview(file) });
+      } catch (e) {
+        toast.push("err", e instanceof Error ? e.message : "فایل پشتیبان نامعتبر است");
+      } finally {
+        setBusy(false);
+        if (fileRef.current) fileRef.current.value = "";
+      }
+    };
+    reader.onerror = () => {
+      setBusy(false);
+      toast.push("err", "خواندن فایل ناموفق بود");
+    };
+    reader.readAsText(f);
+  };
+
+  const confirmRestore = () => {
+    if (!pending) return;
+    setBusy(true);
+    try {
+      const emergency = backupService.restore(pending.file);
+      toast.push("ok", `بازیابی کامل انجام شد — پشتیبان اضطراری وضعیت قبلی: ${emergency}`);
+      setPending(null);
+    } catch (e) {
+      toast.push("err", e instanceof Error ? e.message : "بازیابی ناموفق بود — وضعیت فعلی دست‌نخورده ماند");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="grid items-start gap-4 lg:grid-cols-2">
+      <div className="card p-4">
+        <h3 className="flex items-center gap-2 font-display text-base text-ink">
+          <IconDatabase size={18} className="text-branddeep" />
+          پشتیبان‌گیری کامل
+        </h3>
+        <p className="mt-1 text-[11px] leading-5 text-inkmute">
+          پشتیبان شامل همه کاربران، مشتریان، دسته‌ها، دوچرخه‌ها، اجاره‌ها، پرداخت‌ها، تعمیرات، هزینه‌ها، تنظیمات و تاریخچه است — بدون رمز خام یا توکن نشست.
+        </p>
+        <div className="mt-3 rounded-xl border border-line bg-black/[0.02] px-3.5 py-3">
+          <p className="text-[11px] font-bold text-inksoft">آخرین پشتیبان</p>
+          {last ? (
+            <p className="num mt-0.5 font-display text-lg text-ink">
+              {jalaliDate(last.at)} — {fmtDateTime(last.at).split("،")[1] ?? fmtDateTime(last.at)}
+            </p>
+          ) : (
+            <p className="mt-0.5 text-sm font-bold text-inkmute">هنوز پشتیبانی گرفته نشده</p>
+          )}
+        </div>
+        <div className="mt-3 grid gap-2">
+          <Btn onClick={makeBackup}>
+            <IconDownload size={16} />
+            ایجاد پشتیبان
+          </Btn>
+          <Btn variant="outline" onClick={downloadLatest}>
+            <IconDownload size={15} />
+            دانلود آخرین پشتیبان
+          </Btn>
+          <Btn variant="dark" onClick={() => fileRef.current?.click()} disabled={busy}>
+            <IconUpload size={15} />
+            بازیابی پشتیبان
+          </Btn>
+          <input
+            ref={fileRef}
+            type="file"
+            accept=".json,application/json"
+            className="hidden"
+            onChange={(e) => onPickFile(e.target.files?.[0] ?? null)}
+          />
+        </div>
+        <p className="mt-3 text-[10px] leading-5 text-inkmute">
+          پشتیبان خودکار سبک: روزی یک‌بار به‌صورت محلی ذخیره می‌شود؛ روش اصلی همان پشتیبان دستیِ قابل دانلود است.
+        </p>
+      </div>
+
+      <div className="card p-4">
+        <h3 className="font-display text-base text-ink">نکات ایمنی بازیابی</h3>
+        <ul className="mt-2 space-y-2 text-[11px] leading-6 text-inksoft">
+          <li className="flex gap-2"><IconCheck size={15} className="mt-0.5 shrink-0 text-ok" /> قبل از هر بازیابی، پشتیبان اضطراری از وضعیت فعلی به‌صورت خودکار دانلود می‌شود.</li>
+          <li className="flex gap-2"><IconCheck size={15} className="mt-0.5 shrink-0 text-ok" /> بازیابی فقط کامل انجام می‌شود — بازیابی نیمه‌کاره وجود ندارد.</li>
+          <li className="flex gap-2"><IconCheck size={15} className="mt-0.5 shrink-0 text-ok" /> فایل‌های خراب، با شناسه نادرست یا نسخه طرح‌واره ناسازگار رد می‌شوند.</li>
+          <li className="flex gap-2"><IconCheck size={15} className="mt-0.5 shrink-0 text-ok" /> سازگاری ارجاع‌ها و تعداد رکوردها قبل از بازیابی بررسی می‌شود.</li>
+        </ul>
+      </div>
+
+      {/* پیش‌نمایش و تأیید بازیابی */}
+      <Modal open={!!pending} onClose={() => setPending(null)} title="پیش‌نمایش پشتیبان">
+        {pending && (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-warn/50 bg-warnsoft/60 px-3.5 py-2.5 text-[11px] font-bold leading-5 text-[#8a5a06]">
+              بازیابی، همه داده‌های فعلی را با این پشتیبان جایگزین می‌کند. قبل از آن، پشتیبان اضطراری از وضعیت فعلی دانلود می‌شود.
+            </div>
+            <div className="grid grid-cols-2 gap-2 text-sm">
+              <InfoRow k="تاریخ پشتیبان" v={`${jalaliDate(pending.preview.createdAt)} — ${fmtDateTime(pending.preview.createdAt)}`} />
+              <InfoRow k="ایجادکننده" v={pending.preview.createdBy} />
+              <InfoRow k="مشتریان" v={faNum(pending.preview.customers)} />
+              <InfoRow k="اجاره‌ها" v={faNum(pending.preview.rentals)} />
+              <InfoRow k="دوچرخه‌ها" v={faNum(pending.preview.bikes)} />
+              <InfoRow k="پرداخت‌ها" v={faNum(pending.preview.payments)} />
+              <InfoRow k="تعمیرات" v={faNum(pending.preview.maintenances)} />
+              <InfoRow k="دسته‌ها" v={faNum(pending.preview.categories)} />
+            </div>
+            <div className="flex gap-2">
+              <Btn variant="outline" className="flex-1" onClick={() => setPending(null)} disabled={busy}>
+                انصراف
+              </Btn>
+              <Btn className="flex-1" onClick={confirmRestore} disabled={busy}>
+                <IconUpload size={15} />
+                {busy ? "در حال بازیابی…" : "تأیید و بازیابی"}
+              </Btn>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function InfoRow({ k, v }: { k: string; v: string }) {
+  return (
+    <div className="rounded-lg bg-black/[0.03] px-3 py-2">
+      <p className="text-[10px] font-bold text-inkmute">{k}</p>
+      <p className="num mt-0.5 text-xs font-extrabold text-ink">{v}</p>
     </div>
   );
 }

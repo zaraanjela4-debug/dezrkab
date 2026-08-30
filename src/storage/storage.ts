@@ -64,6 +64,7 @@ export const KEYS = {
   db: "pedal.db.v1",
   session: "pedal.session.v1",
   prefs: "pedal.prefs.v1",
+  autobackup: "pedal.autobackup.v1",
 } as const;
 
 /* ------------------------------ داده اولیه ------------------------------ */
@@ -376,6 +377,28 @@ export function resetToSeed(): void {
   adapter.write(KEYS.db, JSON.stringify(state));
   listeners.forEach((l) => l());
 }
+
+/**
+ * بازیابی کامل — فقط به‌صورت اتمیک:
+ * یا کل وضعیت جایگزین می‌شود یا هیچ‌چیز تغییر نمی‌کند.
+ * داده‌های نسخه‌های قدیمی‌تر هم هنگام ورود نرمال‌سازی می‌شوند.
+ */
+export function restoreDB(next: DB): void {
+  const normalized = normalizeDB({ ...next, rev: state.rev + 1 });
+  state = normalized;
+  adapter.write(KEYS.db, JSON.stringify(state));
+  listeners.forEach((l) => l());
+}
+
+/** اسنپ‌شات خودکار روزانه (سبک و محلی) */
+export const snapshotStore = {
+  read(): string | null {
+    return adapter.read(KEYS.autobackup);
+  },
+  write(value: string): void {
+    adapter.write(KEYS.autobackup, value);
+  },
+};
 
 export function useDB(): DB {
   return useSyncExternalStore(subscribe, getDB);

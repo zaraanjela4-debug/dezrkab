@@ -127,3 +127,44 @@ export function startOfDay(ts: number): number {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 }
+
+/* ------------------------- تاریخ جلالی (عددهای لاتین) ------------------------- */
+
+const jalaliDateFmt = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+});
+const jalaliTimeFmt = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+});
+const jalaliMonthFmt = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
+  year: "numeric",
+  month: "2-digit",
+});
+
+function part(parts: Intl.DateTimeFormatPart[], type: string): string {
+  return parts.find((p) => p.type === type)?.value ?? "00";
+}
+
+/** 1405-06-31 — برای نام فایل پشتیبان */
+export function jalaliStamp(ts: number): string {
+  const d = new Date(ts);
+  const dp = jalaliDateFmt.formatToParts(d);
+  const tp = jalaliTimeFmt.formatToParts(d);
+  return `${part(dp, "year")}-${part(dp, "month")}-${part(dp, "day")}-${part(tp, "hour")}-${part(tp, "minute")}`;
+}
+
+/** 1405/06/31 */
+export function jalaliDate(ts: number): string {
+  const dp = jalaliDateFmt.formatToParts(new Date(ts));
+  return `${part(dp, "year")}/${part(dp, "month")}/${part(dp, "day")}`;
+}
+
+/** کلید سال/ماه جلالی — برای محاسبه مرز ماه‌ها */
+export function jalaliMonthKey(ts: number): string {
+  const mp = jalaliMonthFmt.formatToParts(new Date(ts));
+  return `${part(mp, "year")}/${part(mp, "month")}`;
+}

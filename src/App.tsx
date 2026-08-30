@@ -1,6 +1,7 @@
-import type { ReactNode } from "react";
+import { useEffect, type ReactNode } from "react";
 import { AuthProvider, navigate, useAuth, useNow, useRoute } from "./state/app";
 import { can, type Perm } from "./services/authService";
+import { backupService } from "./services/backupService";
 import { useDB } from "./storage/storage";
 import { faNum, fmtDateFull, fmtTime, fmtWeekday } from "./utils/format";
 import { Badge, Btn, ToastProvider } from "./ui/kit";
@@ -71,6 +72,10 @@ function Shell() {
   const route = useRoute();
   const db = useDB();
   const now = useNow(1000);
+
+  useEffect(() => {
+    if (user) backupService.autoBackupIfNeeded();
+  }, [user?.id]);
 
   if (!user) return <Login />;
 

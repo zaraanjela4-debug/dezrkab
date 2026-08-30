@@ -244,3 +244,33 @@ export const IconGift = (p: IconProps) => (
     <path d="M12 8s-4.8.3-5.5-2.2C6 3.9 8.6 2.6 10 4c1.5 1.5 2 4 2 4zM12 8s4.8.3 5.5-2.2C18 3.9 15.4 2.6 14 4c-1.5 1.5-2 4-2 4z" />
   </svg>
 );
+
+export const IconDownload = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <path d="M12 3.5V15m0 0 4-4m-4 4-4-4" />
+    <path d="M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" />
+  </svg>
+);
+
+export const IconUpload = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <path d="M12 15V3.5m0 0 4 4m-4-4-4 4" />
+    <path d="M4.5 16.5v2a2 2 0 0 0 2 2h11a2 2 0 0 0 2-2v-2" />
+  </svg>
+);
+
+export const IconDatabase = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <ellipse cx="12" cy="5.5" rx="7.5" ry="2.8" />
+    <path d="M4.5 5.5v13c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8v-13" />
+    <path d="M4.5 12c0 1.5 3.4 2.8 7.5 2.8s7.5-1.3 7.5-2.8" />
+  </svg>
+);
+
+export const IconFileText = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <path d="M6 3.5h8l4 4v13H6z" />
+    <path d="M14 3.5v4h4" />
+    <path d="M9 12.5h6M9 16h6" />
+  </svg>
+);

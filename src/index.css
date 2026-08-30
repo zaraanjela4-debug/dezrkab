@@ -177,7 +177,11 @@ body {
   background-size: 18px 18px;
 }
 
-/* چاپ فاکتور — فقط رسید چاپ شود */
+/* چاپ — فقط محتوای .print-root چاپ شود */
+@page {
+  size: A4;
+  margin: 11mm;
+}
 @media print {
   body * {
     visibility: hidden !important;
@@ -195,8 +199,32 @@ body {
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
+    overflow: visible !important;
+    background: #fff !important;
   }
-  .no-print {
+  .no-print,
+  .print-toolbar {
     display: none !important;
   }
+  .report-page {
+    box-shadow: none !important;
+    border: none !important;
+    width: auto !important;
+    min-height: 0 !important;
+    margin: 0 !important;
+    padding: 0 !important;
+  }
+  .report-break {
+    page-break-before: always;
+  }
+}
+
+.report-page {
+  width: 190mm;
+  min-height: 260mm;
+  margin: 0 auto;
+  background: #fff;
+  color: #1c1c1a;
+  direction: rtl;
+  font-family: var(--font-body);
 }
