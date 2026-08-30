@@ -47,12 +47,13 @@ export default function NewRental() {
   const [confirmed, setConfirmed] = useState<{ rental: Rental; startAt: number } | null>(null);
   const [printed, setPrinted] = useState(false);
   const [shakeKey, setShakeKey] = useState("");
-  /* پیش‌پرداخت قبل از تحویل — هیچ/بخشی/کل (ودیعه نیست) */
-  const [payMode, setPayMode] = useState<"none" | "part" | "full">("full");
+  /* بیعانه / پیش‌پرداخت قبل از تحویل — پیش‌فرض صفر (ودیعه نیست) */
   const [payStr, setPayStr] = useState("");
   const [payAccountId, setPayAccountId] = useState<string>(
     () => db.settings.accounts.find((a) => a.kind === "POS" && a.active)?.id ?? db.settings.accounts.find((a) => a.active)?.id ?? ""
   );
+  /* تخفیف روی کل فاکتور — ۰ تا ۴۰٪؛ اگر مشتری پاداش داشته باشد پیش‌فرض همان است */
+  const [discountChoice, setDiscountChoice] = useState(0);
 
   const phoneRef = useRef<HTMLInputElement>(null);
   const firstRef = useRef<HTMLInputElement>(null);
@@ -86,6 +87,11 @@ export default function NewRental() {
   const pct = S.rewardDiscountPercent;
   const eligible = customerReady && (customer?.completedHours ?? 0) >= threshold;
 
+  /* با انتخاب مشتری، تخفیف پیش‌فرض = پاداش مشتری (در صورت واجد شرایط بودن) */
+  useEffect(() => {
+    setDiscountChoice(eligible ? pct : 0);
+  }, [customer?.id, customerReady, eligible, pct]);
+
   const availability = availabilityService.snapshot(db, now);
   const totalUnits = Object.values(qtys).reduce((s, q) => s + q, 0);
 
@@ -96,12 +102,12 @@ export default function NewRental() {
         .filter(([, q]) => q > 0)
         .map(([categoryId, qty]) => ({ categoryId, qty }));
       const q = pricingService.quote(db, items, hours, 0);
-      const discount = eligible ? Math.round((q.subtotal * pct) / 100) : 0;
+      const discount = Math.round((q.subtotal * discountChoice) / 100);
       return { ...q, discount, final: q.subtotal - discount };
     } catch {
       return null;
     }
-  }, [db, qtys, hours, eligible, pct, totalUnits]);
+  }, [db, qtys, hours, discountChoice, totalUnits]);
 
   /* شروع خودکار: الان + زمان آماده‌سازی (گرد به دقیقه) */
   const startAt = Math.ceil((now + S.prepMinutes * 60_000) / 60_000) * 60_000;
@@ -204,22 +210,15 @@ export default function NewRental() {
     });
   };
 
-  /* مبلغ پیش‌پرداخت بر اساس حالت انتخابی */
+  /* مبلغ بیعانه — پیش‌فرض صفر؛ فروشنده هر مبلغی بخواهد وارد می‌کند */
   const prepayAmount = useMemo(() => {
     if (!quote) return 0;
-    if (payMode === "none") return 0;
-    if (payMode === "full") return quote.final;
     const v = parseInt(payStr, 10);
     return Number.isFinite(v) ? Math.max(0, Math.min(v, quote.final)) : 0;
-  }, [quote, payMode, payStr]);
+  }, [quote, payStr]);
   const prepayRemaining = quote ? quote.final - prepayAmount : 0;
   const payAccount = db.settings.accounts.find((a) => a.id === payAccountId) ?? null;
-
-  const choosePayMode = (m: "none" | "part" | "full") => {
-    setPayMode(m);
-    if (m === "part" && quote) setPayStr(String(quote.final));
-    if (m === "part") window.setTimeout(() => payAmountRef.current?.focus(), 60);
-  };
+  const consumeReward = eligible && discountChoice === pct;
 
   const confirmRental = () => {
     if (submitting || !hours || totalUnits === 0 || !customerReady) return;
@@ -235,7 +234,8 @@ export default function NewRental() {
         hours,
         startAt: startMs,
         note: "",
-        discountAuto: true,
+        discountRate: discountChoice,
+        consumeReward,
         prepayAmount,
         accountId: payAccountId,
       });
@@ -266,6 +266,8 @@ export default function NewRental() {
     setQtys({});
     setStage("phone");
     setPrinted(false);
+    setPayStr("");
+    setDiscountChoice(0);
   };
 
   /* ------------------------- کیبورد سراسری (POS) ------------------------- */
@@ -584,71 +586,99 @@ export default function NewRental() {
               <Row k="تلفن" v={<span dir="ltr" className="num">{phoneNorm}</span>} />
               <Row k="مدت" v={durLabel ?? "—"} />
               <Row k="دوچرخه‌ها" v={bikeSummary || "—"} />
-              {eligible && (
-                <div className="mt-2 flex items-center gap-2 rounded-xl bg-oksoft px-3 py-2 text-xs font-extrabold text-ok">
-                  <IconCheck size={14} />
-                  تخفیف {faNum(pct)}٪ روی کل فاکتور — شمارنده پاداش بعد از ثبت صفر می‌شود
-                </div>
-              )}
-
-              {/* پیش‌پرداخت قبل از تحویل */}
+              {/* تخفیف روی کل فاکتور */}
               {quote && (
-                <div className="mt-2.5 rounded-xl border border-line bg-black/[0.02] p-3">
-                  <p className="lbl !mb-2">پرداخت قبل از تحویل</p>
-                  <div className="flex rounded-lg border border-linedeep p-0.5">
-                    {(
-                      [
-                        ["none", "هیچ"],
-                        ["part", "بخشی"],
-                        ["full", "کل مبلغ"],
-                      ] as Array<["none" | "part" | "full", string]>
-                    ).map(([m, label]) => (
+                <div className="mt-2 rounded-xl border border-line bg-black/[0.02] p-3">
+                  <div className="flex items-center justify-between">
+                    <p className="lbl !mb-0">تخفیف (کل فاکتور)</p>
+                    {consumeReward && (
+                      <span className="flex items-center gap-1 rounded-full bg-oksoft px-2 py-0.5 text-[10px] font-extrabold text-ok">
+                        <IconCheck size={11} />
+                        تخفیف پاداش مشتری
+                      </span>
+                    )}
+                  </div>
+                  <div className="mt-1.5 flex gap-1.5">
+                    {[0, 10, 20, 30, 40].map((r) => (
                       <button
-                        key={m}
-                        onClick={() => choosePayMode(m)}
-                        className={`flex-1 cursor-pointer rounded-md px-2 py-1.5 text-xs font-bold transition-colors ${
-                          payMode === m ? "bg-coal text-white" : "text-inksoft hover:bg-black/5"
+                        key={r}
+                        onClick={() => setDiscountChoice(r)}
+                        className={`num flex-1 cursor-pointer rounded-lg border-2 py-1.5 text-sm font-extrabold transition-all duration-100 ${
+                          discountChoice === r
+                            ? "border-brand bg-brandsoft text-branddeep shadow-[0_3px_10px_rgba(255,138,0,0.15)]"
+                            : "border-line bg-white text-inksoft hover:border-linedeep"
                         }`}
                       >
-                        {label}
+                        {faNum(r)}٪
                       </button>
                     ))}
                   </div>
-                  {payMode !== "none" && (
-                    <div className="mt-2 grid grid-cols-2 gap-2">
-                      <div>
-                        <label className="lbl">مبلغ (تومان)</label>
-                        <input
-                          ref={payAmountRef}
-                          className="inp num"
-                          dir="ltr"
-                          style={{ textAlign: "left" }}
-                          type="number"
-                          value={payMode === "full" ? String(quote.final) : payStr}
-                          disabled={payMode === "full"}
-                          onChange={(e) => setPayStr(e.target.value)}
-                        />
-                      </div>
-                      <div>
-                        <label className="lbl">روش پرداخت</label>
-                        <select className="inp" value={payAccountId} onChange={(e) => setPayAccountId(e.target.value)}>
-                          {db.settings.accounts.filter((a) => a.active).map((a) => (
-                            <option key={a.id} value={a.id}>
-                              {accountKindLabel(a.kind)} — {a.name}
-                            </option>
-                          ))}
-                        </select>
-                      </div>
-                    </div>
+                  {consumeReward && (
+                    <p className="mt-1.5 text-[11px] font-bold text-ok">
+                      شمارنده پاداش بعد از ثبت اجاره صفر می‌شود
+                    </p>
                   )}
-                  <div className="mt-2 space-y-0.5">
-                    <Row k="مبلغ کل" v={money(quote.final)} />
-                    <Row k="پرداخت شده" v={<span className={prepayAmount > 0 ? "text-ok" : "text-inkmute"}>{money(prepayAmount)}</span>} />
-                    <Row k="مانده" v={<span className={prepayRemaining > 0 ? "text-danger" : "text-ok"}>{money(prepayRemaining)}</span>} />
-                    {prepayAmount > 0 && payAccount && (
-                      <Row k="روش پرداخت" v={`${accountKindLabel(payAccount.kind)} — ${payAccount.name}`} />
-                    )}
+                  {eligible && discountChoice !== pct && (
+                    <p className="mt-1.5 text-[11px] font-bold text-[#b45309]">
+                      پاداش مشتری برای این اجاره مصرف نخواهد شد
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {/* بیعانه / پیش‌پرداخت قبل از تحویل — پیش‌فرض صفر */}
+              {quote && (
+                <div className="mt-2 rounded-xl border border-line bg-black/[0.02] p-3">
+                  <p className="lbl !mb-1.5">بیعانه / پرداخت قبل از تحویل</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="lbl">مبلغ پرداخت‌شده (تومان)</label>
+                      <input
+                        ref={payAmountRef}
+                        className="inp num"
+                        dir="ltr"
+                        style={{ textAlign: "left" }}
+                        type="number"
+                        min={0}
+                        value={payStr}
+                        onChange={(e) => setPayStr(e.target.value)}
+                        placeholder="0"
+                      />
+                    </div>
+                    <div>
+                      <label className="lbl">روش پرداخت</label>
+                      <select className="inp" value={payAccountId} onChange={(e) => setPayAccountId(e.target.value)}>
+                        {db.settings.accounts.filter((a) => a.active).map((a) => (
+                          <option key={a.id} value={a.id}>
+                            {accountKindLabel(a.kind)} — {a.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
                   </div>
+                </div>
+              )}
+
+              {/* خلاصه مالی — ترتیب: اصلی → تخفیف → نهایی → پرداخت‌شده → مانده */}
+              {quote && (
+                <div className="mt-2 space-y-0.5 border-t-2 border-dashed border-line pt-2">
+                  <Row k="مبلغ اصلی" v={money(quote.subtotal)} />
+                  {quote.discount > 0 && (
+                    <Row k={`تخفیف ${faNum(discountChoice)}٪`} v={<span className="text-ok">− {money(quote.discount)}</span>} />
+                  )}
+                  <Row k="مبلغ نهایی" v={<span className="font-display text-base text-branddeep">{money(quote.final)}</span>} />
+                  <Row k="پرداخت‌شده" v={<span className={prepayAmount > 0 ? "text-ok" : "text-inkmute"}>{money(prepayAmount)}</span>} />
+                  <Row
+                    k="مانده"
+                    v={
+                      <span className={prepayRemaining > 0 ? "text-danger" : "text-ok"}>
+                        {money(prepayRemaining)}
+                      </span>
+                    }
+                  />
+                  {prepayAmount > 0 && payAccount && (
+                    <Row k="روش پرداخت" v={`${accountKindLabel(payAccount.kind)} — ${payAccount.name}`} />
+                  )}
                 </div>
               )}
             </div>
@@ -673,7 +703,7 @@ export default function NewRental() {
               </div>
               <Btn size="lg" className="mt-2.5 w-full text-base" ref={confirmBtnRef} onClick={confirmRental} disabled={submitting}>
                 <IconCheck size={19} />
-                تأیید نهایی — Enter ↵
+                شروع اجاره — Enter ↵
               </Btn>
             </div>
           </div>
@@ -717,7 +747,11 @@ export default function NewRental() {
                   <>
                     <MiniRow k="قیمت اصلی" v={<span className="num text-inkmute line-through">{money(quote.subtotal)}</span>} />
                     <MiniRow
-                      k={<span className="font-extrabold text-ok">تخفیف {faNum(pct)}٪</span>}
+                      k={
+                        <span className="font-extrabold text-ok">
+                          تخفیف {faNum(discountChoice)}٪{consumeReward ? " (پاداش)" : ""}
+                        </span>
+                      }
                       v={<span className="num font-extrabold text-ok">− {money(quote.discount)}</span>}
                     />
                   </>

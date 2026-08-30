@@ -4,7 +4,7 @@ import { useAuth } from "../state/app";
 import { can } from "../services/authService";
 import { KIND_LABEL, paymentService } from "../services/paymentService";
 import { useDB } from "../storage/storage";
-import { faNum, fmtDateTime, isSameDay, money } from "../utils/format";
+import { accountKindLabel, faNum, fmtDateTime, isSameDay, money } from "../utils/format";
 import { Badge, Btn, Empty, Modal, useToast } from "../ui/kit";
 
 import { IconCash, IconEdit, IconPlus, IconSearch, IconWallet } from "../ui/icons";

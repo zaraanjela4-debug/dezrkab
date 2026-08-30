@@ -39,37 +39,17 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-4">
-      {/* ردیف ۱: CTA + دوچرخه‌های موجود */}
+      {/* ردیف ۱: دوچرخه‌های موجود (اول) + دکمه بزرگ اجاره */}
       <div className="grid gap-3 xl:grid-cols-12">
-        <button
-          onClick={() => navigate("rental")}
-          className="anim-up group relative xl:col-span-3 overflow-hidden rounded-2xl bg-brand p-4 text-start text-white shadow-[0_10px_30px_rgba(255,138,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-branddeep cursor-pointer"
-        >
-          <div
-            className="pointer-events-none absolute -left-10 -top-10 size-40 rounded-full opacity-25 transition-transform duration-300 group-hover:scale-125"
-            style={{ background: "radial-gradient(circle, #fff 0%, transparent 60%)" }}
-          />
-          <span className="grid size-12 place-items-center rounded-2xl bg-white/15 backdrop-blur-sm">
-            <IconBike size={30} />
-          </span>
-          <h2 className="mt-3 font-display text-2xl leading-8">اجاره دوچرخه</h2>
-          <p className="mt-0.5 text-xs text-white/85">شروع اجاره جدید</p>
-          <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold text-white/90">
-            ورود به پیشخوان اجاره
-            <IconArrowLeft size={14} className="transition-transform duration-200 group-hover:-translate-x-1" />
-          </span>
-        </button>
-
         <div className="xl:col-span-9">
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
             {availability.map((a, i) => (
               <button
                 key={a.category.id}
                 onClick={() => navigate(`rental?cat=${a.category.code}`)}
-                disabled={a.available === 0}
                 style={{ animationDelay: `${i * 45}ms` }}
-                className={`anim-up card group cursor-pointer p-3 text-start transition-all duration-200 hover:-translate-y-0.5 hover:border-brand hover:shadow-[0_8px_24px_rgba(30,30,25,0.1)] disabled:cursor-not-allowed disabled:opacity-75 ${
-                  a.available === 0 ? "border-danger/30" : ""
+                className={`anim-up card group cursor-pointer p-3 text-start transition-all duration-200 hover:-translate-y-0.5 hover:border-brand hover:shadow-[0_8px_24px_rgba(30,30,25,0.1)] ${
+                  a.available === 0 ? "border-danger/40 bg-dangersoft/30" : ""
                 }`}
               >
                 <p className="text-[10px] font-extrabold tracking-wide text-inkmute">
@@ -82,11 +62,14 @@ export default function Dashboard() {
                       موجود
                     </span>
                   ) : (
-                    <span className="text-[11px] font-bold text-danger">ناموجود</span>
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-danger">
+                      <span className="inline-block size-2 rounded-full bg-danger" />
+                      موجود
+                    </span>
                   )}
                   <span
                     className={`num font-display text-4xl leading-none ${
-                      a.available === 0 ? "text-danger" : "text-ink"
+                      a.available > 0 ? "text-ok" : "text-danger"
                     }`}
                   >
                     {faNum(a.available)}
@@ -102,6 +85,25 @@ export default function Dashboard() {
             ))}
           </div>
         </div>
+
+        <button
+          onClick={() => navigate("rental")}
+          className="anim-up group relative overflow-hidden rounded-2xl bg-brand p-4 text-start text-white shadow-[0_10px_30px_rgba(255,138,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-branddeep cursor-pointer xl:col-span-3"
+        >
+          <div
+            className="pointer-events-none absolute -left-10 -top-10 size-40 rounded-full opacity-25 transition-transform duration-300 group-hover:scale-125"
+            style={{ background: "radial-gradient(circle, #fff 0%, transparent 60%)" }}
+          />
+          <span className="grid size-12 place-items-center rounded-2xl bg-white/15 backdrop-blur-sm">
+            <IconBike size={30} />
+          </span>
+          <h2 className="mt-3 font-display text-2xl leading-8">اجاره دوچرخه</h2>
+          <p className="mt-0.5 text-xs text-white/85">شروع اجاره جدید</p>
+          <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold text-white/90">
+            ورود به پیشخوان اجاره
+            <IconArrowLeft size={14} className="transition-transform duration-200 group-hover:-translate-x-1" />
+          </span>
+        </button>
       </div>
 
       {/* ردیف ۲: در حال رکاب — تمام عرض */}
@@ -158,9 +160,10 @@ function customerName(db: DB, id: string): string {
 function ActiveRentalsBoard({ db }: { db: DB }) {
   const now = useNow(1000);
   const grace = db.settings.graceMinutes;
-  const rentals = db.rentals.filter(
-    (r) => r.status === "ACTIVE" || r.status === "PARTIAL"
-  );
+  /* ترتیب بر اساس فوریت: دیرکرده‌ها (قدیمی‌ترین اول) سپس نزدیک‌ترین سررسید */
+  const rentals = db.rentals
+    .filter((r) => r.status === "ACTIVE" || r.status === "PARTIAL")
+    .sort((a, b) => a.plannedEndAt - b.plannedEndAt);
   const rentedUnits = db.bikes.filter((b) => b.status === "RENTED").length;
   const maintUnits = db.bikes.filter((b) => b.status === "MAINTENANCE").length;
   const outUnits = db.bikes.filter((b) => b.status === "OUT_OF_SERVICE").length;
@@ -190,7 +193,7 @@ function ActiveRentalsBoard({ db }: { db: DB }) {
           sub="با «اجاره دوچرخه» اولین رکاب‌سوار را ثبت کنید"
         />
       ) : (
-        <div className="grid gap-3 p-3 md:grid-cols-2 2xl:grid-cols-3">
+        <div className="flex flex-col gap-3 p-3">
           {rentals.map((r) => (
             <RentalCard key={r.id} db={db} rental={r} now={now} grace={grace} />
           ))}
@@ -214,16 +217,24 @@ function RentalCard({
   const customer = db.customers.find((c) => c.id === rental.customerId);
   const diff = rental.plannedEndAt - now;
   const lateMinutes = diff < 0 ? Math.ceil(-diff / 60_000) : 0;
-  const withinGrace = lateMinutes > 0 && lateMinutes <= grace;
-  const overdue = lateMinutes > grace;
+  const overdue = diff <= 0;
+  const warning = !overdue && diff <= 15 * 60_000;
 
   const outstanding = rental.items.filter((i) => i.qty - i.returnedQty > 0);
 
   return (
-    <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-4 transition-all duration-200 hover:border-brand/60 hover:shadow-[0_6px_20px_rgba(30,30,25,0.08)]">
+    <div
+      className={`flex flex-col gap-2.5 rounded-xl border-2 bg-white p-4 transition-all duration-200 ${
+        overdue
+          ? "border-danger/50 bg-dangersoft/35 shadow-[0_4px_16px_rgba(220,38,38,0.08)]"
+          : warning
+            ? "border-warn/50 bg-warnsoft/35"
+            : "border-line hover:border-brand/50 hover:shadow-[0_6px_20px_rgba(30,30,25,0.08)]"
+      }`}
+    >
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="truncate font-display text-lg leading-6 text-ink">
+          <p className="truncate font-display text-xl leading-7 text-ink">
             {customer?.name ?? "مشتری"}
             {rental.status === "PARTIAL" && (
               <Badge tone="warn" className="ms-2 align-middle">برگشت نسبی</Badge>
@@ -233,7 +244,7 @@ function RentalCard({
             اجاره #{faNum(rental.number)} · شروع {fmtTime(rental.startAt)}
           </p>
         </div>
-        <RemainingPill lateMinutes={lateMinutes} withinGrace={withinGrace} overdue={overdue} plannedEndAt={rental.plannedEndAt} now={now} />
+        <RemainingPill lateMinutes={lateMinutes} overdue={overdue} warning={warning} plannedEndAt={rental.plannedEndAt} now={now} />
       </div>
 
       <div>
@@ -250,57 +261,60 @@ function RentalCard({
         </div>
       </div>
 
-      <div className="num flex items-center gap-1.5 text-xs font-bold text-inksoft">
-        <IconClock size={14} className="text-inkmute" />
-        ساعت بازگشت: {fmtTime(rental.plannedEndAt)}
-        <span className="font-normal text-inkmute">· مهلت بخشودگی {faNum(grace)} دقیقه</span>
+      <div className="mt-auto flex flex-wrap items-center justify-between gap-3">
+        <p className="num flex items-center gap-1.5 text-sm font-extrabold text-inksoft">
+          <IconClock size={16} className={overdue ? "text-danger" : "text-inkmute"} />
+          ساعت بازگشت: {fmtTime(rental.plannedEndAt)}
+          <span className="text-[11px] font-normal text-inkmute">· {faNum(grace)} دقیقه بخشودگی</span>
+        </p>
+        <button
+          onClick={() => navigate(`returns?id=${rental.id}`)}
+          className={`inline-flex cursor-pointer items-center justify-center gap-2 rounded-xl px-8 py-3 font-display text-lg text-white shadow-[0_4px_14px_rgba(255,138,0,0.3)] transition-all duration-150 hover:bg-branddeep active:scale-[0.98] ${
+            overdue ? "bg-danger hover:bg-[#b91c1c] shadow-[0_4px_14px_rgba(220,38,38,0.35)]" : "bg-brand"
+          }`}
+        >
+          <IconReturn size={20} />
+          ثبت برگشت
+        </button>
       </div>
-
-      <button
-        onClick={() => navigate(`returns?id=${rental.id}`)}
-        className="mt-auto inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand py-3 font-display text-lg text-white shadow-[0_4px_14px_rgba(255,138,0,0.3)] transition-all duration-150 hover:bg-branddeep active:scale-[0.98]"
-      >
-        <IconReturn size={19} />
-        ثبت برگشت
-      </button>
     </div>
   );
 }
 
 function RemainingPill({
   lateMinutes,
-  withinGrace,
   overdue,
+  warning,
   plannedEndAt,
   now,
 }: {
   lateMinutes: number;
-  withinGrace: boolean;
   overdue: boolean;
+  warning: boolean;
   plannedEndAt: number;
   now: number;
 }) {
-  if (lateMinutes === 0) {
-    const remaining = Math.floor((plannedEndAt - now) / 60_000);
+  if (overdue) {
     return (
-      <div className="shrink-0 rounded-xl bg-oksoft px-3 py-2 text-end">
-        <p className="num font-display text-xl leading-6 text-ok">{minutesWords(Math.max(0, remaining))}</p>
-        <p className="text-[10px] font-bold text-ok">باقی مانده</p>
+      <div className="dot-warn shrink-0 rounded-xl bg-danger px-3.5 py-2 text-end shadow-[0_4px_14px_rgba(220,38,38,0.3)]">
+        <p className="num font-display text-xl leading-6 text-white">{minutesWords(lateMinutes)}</p>
+        <p className="text-[10px] font-bold text-white/85">دیرکرد</p>
       </div>
     );
   }
-  if (withinGrace) {
+  const remaining = Math.floor((plannedEndAt - now) / 60_000);
+  if (warning) {
     return (
-      <div className="shrink-0 rounded-xl bg-warnsoft px-3 py-2 text-end">
-        <p className="num font-display text-xl leading-6 text-[#b45309]">{minutesWords(lateMinutes)}</p>
-        <p className="text-[10px] font-bold text-[#b45309]">دیرکرد · بخشوده</p>
+      <div className="shrink-0 rounded-xl bg-warnsoft px-3.5 py-2 text-end">
+        <p className="num font-display text-xl leading-6 text-[#b45309]">{minutesWords(Math.max(0, remaining))}</p>
+        <p className="text-[10px] font-bold text-[#b45309]">باقی مانده</p>
       </div>
     );
   }
   return (
-    <div className={`shrink-0 rounded-xl bg-dangersoft px-3 py-2 text-end ${overdue ? "dot-warn" : ""}`}>
-      <p className="num font-display text-xl leading-6 text-danger">{minutesWords(lateMinutes)}</p>
-      <p className="text-[10px] font-bold text-danger">دیرکرد</p>
+    <div className="shrink-0 rounded-xl bg-oksoft px-3.5 py-2 text-end">
+      <p className="num font-display text-xl leading-6 text-ok">{minutesWords(Math.max(0, remaining))}</p>
+      <p className="text-[10px] font-bold text-ok">باقی مانده</p>
     </div>
   );
 }

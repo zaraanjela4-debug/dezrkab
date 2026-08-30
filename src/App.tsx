@@ -8,7 +8,6 @@ import {
   IconBike,
   IconCash,
   IconChart,
-  IconClipboard,
   IconDash,
   IconGear,
   IconLock,
@@ -41,7 +40,6 @@ interface NavItem {
 const NAV: NavItem[] = [
   { path: "dashboard", label: "پیشخوان", icon: IconDash },
   { path: "bikes", label: "دوچرخه‌ها", icon: IconBike },
-  { path: "rental", label: "اجاره حضوری", icon: IconClipboard, perm: "rental.create" },
   { path: "customers", label: "مشتریان", icon: IconUsers },
   { path: "returns", label: "برگشت", icon: IconReturn, perm: "return.process" },
   { path: "payments", label: "پرداخت", icon: IconCash, perm: "payment.receive" },
@@ -182,7 +180,9 @@ function Shell() {
         {/* هدر */}
         <header className="sticky top-0 z-30 hidden items-center justify-between border-b border-line bg-paper/85 px-6 py-3.5 backdrop-blur lg:flex">
           <div className="flex items-center gap-3">
-            <h2 className="font-display text-2xl text-ink">{active.label}</h2>
+            <h2 className="font-display text-2xl text-ink">
+              {route.path === "rental" ? "شروع اجاره" : active.label}
+            </h2>
             <Badge tone={user.role === "MANAGER" ? "brand" : "neutral"}>
               {user.role === "MANAGER" ? "مدیر" : "فروشنده"}
             </Badge>

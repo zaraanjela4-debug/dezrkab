@@ -32,9 +32,11 @@ export interface CreateRentalInput {
   hours: number;
   startAt: number;
   note: string;
-  /** اعمال خودکار تخفیف پاداش مشتری روی کل فاکتور */
-  discountAuto: boolean;
-  /** پیش‌پرداخت قبل از تحویل (صفر یعنی هیچ پرداختی نشده) — ودیعه نیست */
+  /** تخفیف انتخابی روی کل فاکتور (درصد) */
+  discountRate: number;
+  /** اگر این تخفیف همان پاداش مشتری است، شمارنده پاداش پس از ثبت صفر می‌شود */
+  consumeReward: boolean;
+  /** پیش‌پرداخت/بیعانه قبل از تحویل (صفر یعنی هیچ پرداختی نشده) — ودیعه نیست */
   prepayAmount: number;
   accountId: string;
 }
@@ -100,11 +102,11 @@ export const rentalService = {
         }
       }
 
-      /* ---------- تخفیف پاداش: روی کل فاکتور، نه هر دوچرخه ---------- */
-      let discountRate = 0;
-      if (input.discountAuto && customer.completedHours >= draft.settings.rewardThresholdHours) {
-        discountRate = draft.settings.rewardDiscountPercent;
-      }
+      /* ---------- تخفیف روی کل فاکتور (انتخاب فروشنده یا پاداش مشتری) ---------- */
+      const rewardEligible = customer.completedHours >= draft.settings.rewardThresholdHours;
+      let discountRate = Math.max(0, Math.min(90, Math.round(input.discountRate)));
+      const isReward = input.consumeReward && rewardEligible;
+      if (isReward) discountRate = draft.settings.rewardDiscountPercent;
       const quote = pricingService.quote(draft, items, input.hours, 0);
       const discount = Math.round((quote.subtotal * discountRate) / 100);
 
@@ -129,7 +131,7 @@ export const rentalService = {
         subtotal: quote.subtotal,
         discount,
         discountRate,
-        discountAuto: discountRate > 0,
+        discountAuto: isReward,
         lateFee: 0,
         depositTotal: 0,
         total: quote.subtotal - discount,
@@ -175,7 +177,7 @@ export const rentalService = {
       }
 
       /* ---------- مصرف پاداش فقط بعد از ثبت موفق اجاره ---------- */
-      if (discountRate > 0) {
+      if (isReward) {
         customer.completedHours = 0;
         customer.discountUses.unshift({
           at: now,
