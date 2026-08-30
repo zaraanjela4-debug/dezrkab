@@ -177,45 +177,109 @@ body {
   background-size: 18px 18px;
 }
 
-/* چاپ — فقط محتوای .print-root چاپ شود */
+/*
+  چاپ چندصفحه‌ای
+  ─────────────
+  گزارش‌های A4: جریان طبیعی سند + شکست صفحه (position: fixed ممنوع — خروجی را به یک صفحه برش می‌داد)
+  رسید حرارتی ۸ سانتی: صفحه نام‌دار جداگانه با عرض ۸۰ میلی‌متر
+*/
 @page {
   size: A4;
   margin: 11mm;
 }
+@page pedal-receipt {
+  size: 80mm auto;
+  margin: 4mm;
+}
+
 @media print {
-  body * {
-    visibility: hidden !important;
+  /* هر چیزی که نه خودش .print-root است، نه از نوادگش، نه از نیاکانش → کاملاً از چیدمان حذف شود */
+  body *:not(:has(.print-root)):not(.print-root):not(.print-root *) {
+    display: none !important;
   }
-  .print-root,
-  .print-root * {
-    visibility: visible !important;
-  }
-  .print-root {
-    position: fixed !important;
-    inset: 0 !important;
-    width: 100% !important;
-    max-width: 100% !important;
+
+  /* نیاکان مسیر چاپ به ظرف خنثیِ جریان طبیعی تبدیل شوند —
+     بدون fixed/scroll/transform تا محتوا آزادانه روی صفحات بعدی ادامه یابد */
+  html,
+  body,
+  body *:has(.print-root):not(.print-root) {
+    position: static !important;
+    inset: auto !important;
+    display: block !important;
+    height: auto !important;
+    max-height: none !important;
+    min-height: 0 !important;
+    width: auto !important;
+    max-width: none !important;
+    overflow: visible !important;
+    padding: 0 !important;
     margin: 0 !important;
+    background: transparent !important;
     border: none !important;
     border-radius: 0 !important;
     box-shadow: none !important;
-    overflow: visible !important;
+    transform: none !important;
+    animation: none !important;
+    backdrop-filter: none !important;
+    flex: none !important;
+  }
+
+  html,
+  body {
     background: #fff !important;
   }
+
+  .print-root {
+    position: static !important;
+    inset: auto !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
+    animation: none !important;
+    box-shadow: none !important;
+  }
+
   .no-print,
   .print-toolbar {
     display: none !important;
   }
+
+  /* رسید حرارتی — صفحه ۸۰ میلی‌متری، مستقل از گزارش‌های A4 */
+  .print-receipt {
+    page: pedal-receipt;
+    width: 72mm !important;
+    max-width: 72mm !important;
+    margin: 0 auto !important;
+  }
+
+  /* گزارش A4 — عرض کامل ناحیه چاپ، بدون ارتفاع اجباری */
   .report-page {
-    box-shadow: none !important;
-    border: none !important;
     width: auto !important;
     min-height: 0 !important;
     margin: 0 !important;
     padding: 0 !important;
+    box-shadow: none !important;
+    border: none !important;
   }
+
   .report-break {
-    page-break-before: always;
+    break-before: page;
+  }
+
+  /* رفتار امن جدول و بلوک‌ها در شکست صفحه */
+  thead {
+    display: table-header-group;
+  }
+  tr {
+    break-inside: avoid;
+  }
+  h1,
+  h2,
+  h3 {
+    break-after: avoid;
+  }
+  .keep-together {
+    break-inside: avoid;
   }
 }
 

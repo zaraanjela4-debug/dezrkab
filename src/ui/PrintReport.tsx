@@ -48,7 +48,7 @@ function RSection({ title, children }: { title: string; children: ReactNode }) {
 
 function RKV({ items }: { items: Array<[string, string]> }) {
   return (
-    <div className="mt-2 grid grid-cols-4 gap-1.5">
+    <div className="keep-together mt-2 grid grid-cols-4 gap-1.5">
       {items.map(([k, v]) => (
         <div key={k} className="rounded border border-neutral-300 px-2 py-1.5">
           <p className="text-[9px] font-bold text-neutral-500">{k}</p>
@@ -116,7 +116,7 @@ export default function PrintReport({ type, a, db }: { type: ReportType; a: Anal
     <RSection title={`فهرست اجاره‌های بازه (${faNum(a.rentalsInRange.length)})`}>
       <RTable
         head={["شماره", "مشتری", "تاریخ", "دوچرخه‌ها", "مدت", "تخفیف", "جریمه", "جمع", "وضعیت"]}
-        rows={a.rentalsInRange.slice(0, 45).map((r) => [
+        rows={a.rentalsInRange.map((r) => [
           `#${faNum(r.number)}`,
           db.customers.find((c) => c.id === r.customerId)?.name ?? "—",
           fmtDateTime(r.createdAt),
@@ -128,11 +128,6 @@ export default function PrintReport({ type, a, db }: { type: ReportType; a: Anal
           STATUS_LABEL[r.status],
         ])}
       />
-      {a.rentalsInRange.length > 45 && (
-        <p className="num mt-1 text-[9px] text-neutral-500">
-          … و {faNum(a.rentalsInRange.length - 45)} اجاره دیگر در این بازه
-        </p>
-      )}
     </RSection>
   );
 
@@ -180,10 +175,10 @@ export default function PrintReport({ type, a, db }: { type: ReportType; a: Anal
   );
 
   return (
-    <div className="print-root overflow-y-auto">
+    <div className="print-root">
       <div className="report-page p-6">
         {/* سربرگ */}
-        <header className="flex items-end justify-between border-b-4 border-neutral-900 pb-3">
+        <header className="keep-together flex items-end justify-between border-b-4 border-neutral-900 pb-3">
           <div>
             <p className="font-display text-2xl text-neutral-900">{db.settings.storeName}</p>
             <p className="mt-0.5 text-[11px] font-bold text-neutral-500">{REPORT_TYPE_LABEL[type]}</p>
@@ -321,7 +316,7 @@ export default function PrintReport({ type, a, db }: { type: ReportType; a: Anal
             کیفیت داده — رکوردها: {faNum(a.quality.record_count.rentals)} اجاره، {faNum(a.quality.record_count.customers)} مشتری، {faNum(a.quality.record_count.payments)} پرداخت | روزهای پوشش: {faNum(a.quality.period_covered.days)}
             {a.quality.missing_fields.length > 0 && <> | فیلدهای ناقص: {a.quality.missing_fields.join("، ")}</>}
           </p>
-          <p className="mt-0.5">این گزارش به‌صورت خودکار از سامانه «پدال» تولید شده است — صفحه {faNum(1)}</p>
+          <p className="mt-0.5">این گزارش به‌صورت خودکار از سامانه «پدال» تولید شده است</p>
         </footer>
       </div>
     </div>

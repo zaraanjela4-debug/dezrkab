@@ -919,7 +919,7 @@ function Receipt({ rental, startAt, operatorName }: { rental: Rental; startAt: n
   const bars = Array.from({ length: 28 }, (_, i) => ((rental.number * 7 + i * 13) % 3) === 0);
 
   return (
-    <div className="print-root mx-auto max-w-sm rounded-xl border-2 border-dashed border-linedeep bg-white p-5">
+    <div className="print-root print-receipt mx-auto max-w-sm rounded-xl border-2 border-dashed border-linedeep bg-white p-5">
       <div className="text-center">
         <p className="font-display text-2xl text-ink">{S.storeName}</p>
         <p className="text-[11px] font-bold text-inksoft">فاکتور اجاره دوچرخه</p>
