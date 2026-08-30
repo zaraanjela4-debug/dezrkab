@@ -14,9 +14,12 @@ import type {
   Category,
   Customer,
   DB,
+  DiscountUse,
+  DurationOption,
   Payment,
   Rental,
   SessionInfo,
+  Settings,
 } from "../domain/models";
 import { hashPassword } from "../utils/hash";
 
@@ -108,11 +111,11 @@ function seedDB(): DB {
   }
 
   const customers: Customer[] = [
-    { id: "cus-1", name: "علی رضایی", phone: "09121234567", idNumber: "0012345678", note: "مشتری ثابت", createdAt: now - 40 * 24 * H },
-    { id: "cus-2", name: "مریم احمدی", phone: "09351112233", idNumber: "0098765432", note: "", createdAt: now - 21 * 24 * H },
-    { id: "cus-3", name: "حسین کریمی", phone: "09191234987", idNumber: "0055443322", note: "", createdAt: now - 12 * 24 * H },
-    { id: "cus-4", name: "نرگس موسوی", phone: "09021119876", idNumber: "", note: "", createdAt: now - 6 * 24 * H },
-    { id: "cus-5", name: "رضا قاسمی", phone: "09123334455", idNumber: "0011223344", note: "دوچرخه بچه‌گانه می‌خواهد", createdAt: now - 2 * 24 * H },
+    { id: "cus-1", name: "علی رضایی", phone: "09121234567", idNumber: "0012345678", note: "مشتری ثابت", completedHours: 4, discountUses: [{ at: now - 18 * 24 * H, rentalId: "ren-0986", rentalNumber: 986 }], createdAt: now - 40 * 24 * H },
+    { id: "cus-2", name: "مریم احمدی", phone: "09351112233", idNumber: "0098765432", note: "", completedHours: 5, discountUses: [], createdAt: now - 21 * 24 * H },
+    { id: "cus-3", name: "حسین کریمی", phone: "09191234987", idNumber: "0055443322", note: "", completedHours: 2, discountUses: [], createdAt: now - 12 * 24 * H },
+    { id: "cus-4", name: "نرگس موسوی", phone: "09021119876", idNumber: "", note: "", completedHours: 0, discountUses: [], createdAt: now - 6 * 24 * H },
+    { id: "cus-5", name: "رضا قاسمی", phone: "09123334455", idNumber: "0011223344", note: "دوچرخه بچه‌گانه می‌خواهد", completedHours: 1, discountUses: [], createdAt: now - 2 * 24 * H },
   ];
 
   const rentals: Rental[] = [
@@ -131,6 +134,8 @@ function seedDB(): DB {
       discount: 0,
       lateFee: 0,
       depositTotal: 200_000,
+      discountRate: 0,
+      discountAuto: false,
       total: 100_000,
       status: "SETTLED",
       note: "",
@@ -155,6 +160,8 @@ function seedDB(): DB {
       discount: 0,
       lateFee: 0,
       depositTotal: 450_000,
+      discountRate: 0,
+      discountAuto: false,
       total: 220_000,
       status: "ACTIVE",
       note: "",
@@ -178,6 +185,8 @@ function seedDB(): DB {
       discount: 0,
       lateFee: 0,
       depositTotal: 400_000,
+      discountRate: 0,
+      discountAuto: false,
       total: 200_000,
       status: "ACTIVE",
       note: "پارک لاله",
@@ -244,28 +253,67 @@ function seedDB(): DB {
       { id: "aud-2", at: now - 2 * H, actorId: "usr-manager", actorName: "امیر تهرانی", action: "شروع تعمیرات", entity: "maintenance", entityId: "mnt-1", details: "D-01 — پنچری چرخ عقب و سرویس زنجیر" },
       { id: "aud-3", at: now - 26 * H, actorId: "usr-seller", actorName: "سارا محمدی", action: "تسویه اجاره", entity: "rental", entityId: "ren-1001", details: "اجاره #۱۰۰۱ تکمیل و تسویه شد" },
     ],
-    settings: {
-      storeName: "دوچرخه‌سرای پدال",
-      currency: "تومان",
-      graceMinutes: 15,
-      releaseDelayMinutes: 10,
-      lateMultiplier: 1.5,
-      durations: [
-        { hours: 1, label: "۱ ساعته" },
-        { hours: 2, label: "۲ ساعته" },
-        { hours: 3, label: "۳ ساعته" },
-        { hours: 4, label: "۴ ساعته" },
-        { hours: 6, label: "نیم‌روز" },
-        { hours: 12, label: "۱۲ ساعته" },
-        { hours: 24, label: "تمام‌روز" },
-      ],
-      accounts: [
-        { id: "acc-pos", name: "دستگاه کارت‌خوان", kind: "POS", active: true },
-        { id: "acc-cash", name: "صندوق نقدی", kind: "CASH", active: true },
-        { id: "acc-card", name: "کارت به کارت", kind: "TRANSFER", active: true },
-      ],
-    },
+    settings: makeDefaultSettings(),
   };
+}
+
+/** بازه‌های مجاز اجاره — دقیقاً همین فهرست */
+const DEFAULT_DURATIONS: DurationOption[] = [
+  { hours: 0.5, label: "نیم ساعت" },
+  { hours: 1, label: "1 ساعت" },
+  { hours: 1.5, label: "1 ساعت و نیم" },
+  { hours: 2, label: "2 ساعت" },
+  { hours: 3, label: "3 ساعت" },
+  { hours: 4, label: "4 ساعت" },
+  { hours: 24, label: "1 روزه" },
+];
+
+function makeDefaultSettings(): Settings {
+  return {
+    storeName: "دوچرخه‌سرای پدال",
+    currency: "تومان",
+    graceMinutes: 15,
+    releaseDelayMinutes: 10,
+    lateMultiplier: 1.5,
+    prepMinutes: 3,
+    rewardThresholdHours: 5,
+    rewardDiscountPercent: 30,
+    durations: DEFAULT_DURATIONS.map((d) => ({ ...d })),
+    accounts: [
+      { id: "acc-pos", name: "دستگاه کارت‌خوان", kind: "POS", active: true },
+      { id: "acc-cash", name: "صندوق نقدی", kind: "CASH", active: true },
+      { id: "acc-card", name: "کارت به کارت", kind: "TRANSFER", active: true },
+    ],
+  };
+}
+
+/**
+ * مهاجرت داده‌های ذخیره‌شده نسخه‌های قبل —
+ * فیلدهای جدید با مقدار پیش‌فرض پر می‌شوند تا داده قدیمی هم سالم بماند
+ */
+function normalizeDB(p: DB): DB {
+  const customers: Customer[] = (p.customers ?? []).map((c) => ({
+    ...c,
+    completedHours: typeof c.completedHours === "number" ? c.completedHours : 0,
+    discountUses: Array.isArray(c.discountUses) ? c.discountUses : ([] as DiscountUse[]),
+  }));
+  const rentals: Rental[] = (p.rentals ?? []).map((r) => ({
+    ...r,
+    discountRate: typeof r.discountRate === "number" ? r.discountRate : 0,
+    discountAuto: r.discountAuto === true,
+  }));
+  const defaults = makeDefaultSettings();
+  const settings: Settings = {
+    ...defaults,
+    ...p.settings,
+    durations: DEFAULT_DURATIONS.map((d) => ({ ...d })),
+    accounts:
+      p.settings && Array.isArray(p.settings.accounts) && p.settings.accounts.length > 0
+        ? p.settings.accounts
+        : defaults.accounts,
+  };
+  settings.prepMinutes = Math.min(5, Math.max(0, settings.prepMinutes ?? 3));
+  return { ...p, customers, rentals, settings };
 }
 
 /* --------------------------- store با snapshot --------------------------- */
@@ -276,7 +324,7 @@ function loadDB(): DB {
     try {
       const parsed = JSON.parse(raw) as DB;
       if (parsed && typeof parsed.rev === "number" && Array.isArray(parsed.rentals)) {
-        return parsed;
+        return normalizeDB(parsed);
       }
     } catch {
       /* داده خراب — بازسازی */

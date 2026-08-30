@@ -1,5 +1,4 @@
 import { useState, type ReactNode } from "react";
-import type { DurationOption } from "../domain/models";
 import { authService } from "../services/authService";
 import { inventoryService } from "../services/inventoryService";
 import { settingsService } from "../services/settingsService";
@@ -201,8 +200,9 @@ function RulesTab() {
   const [grace, setGrace] = useState(String(s.graceMinutes));
   const [release, setRelease] = useState(String(s.releaseDelayMinutes));
   const [mult, setMult] = useState(String(s.lateMultiplier));
-  const [newHours, setNewHours] = useState("");
-  const [newLabel, setNewLabel] = useState("");
+  const [prep, setPrep] = useState(String(s.prepMinutes));
+  const [rewardHours, setRewardHours] = useState(String(s.rewardThresholdHours));
+  const [rewardPct, setRewardPct] = useState(String(s.rewardDiscountPercent));
 
   function saveRules() {
     try {
@@ -210,17 +210,11 @@ function RulesTab() {
         graceMinutes: parseInt(grace, 10) || 0,
         releaseDelayMinutes: parseInt(release, 10) || 0,
         lateMultiplier: parseFloat(mult) || 1.5,
+        prepMinutes: parseInt(prep, 10) || 0,
+        rewardThresholdHours: parseInt(rewardHours, 10) || 5,
+        rewardDiscountPercent: parseInt(rewardPct, 10) || 30,
       });
       toast.push("ok", "قوانین ذخیره شد — از اجاره بعدی اعمال می‌شود");
-    } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "ناموفق");
-    }
-  }
-
-  function setDurations(list: DurationOption[]) {
-    try {
-      settingsService.setDurations(list);
-      toast.push("ok", "بازه‌های زمانی به‌روزرسانی شد");
     } catch (e) {
       toast.push("err", e instanceof Error ? e.message : "ناموفق");
     }
@@ -255,50 +249,43 @@ function RulesTab() {
         </div>
       </div>
 
-      <div className="card p-4">
-        <h3 className="font-display text-base text-ink">بازه‌های زمانی اجاره</h3>
-        <div className="mt-3 flex flex-wrap gap-2">
-          {s.durations.map((d) => (
-            <span key={d.hours} className="flex items-center gap-2 rounded-xl border border-linedeep px-3 py-1.5 text-xs font-bold text-ink">
-              {d.label}
-              <span className="num text-[10px] text-inkmute">({faNum(d.hours)} ساعت)</span>
-              {s.durations.length > 1 && (
-                <button
-                  onClick={() => setDurations(s.durations.filter((x) => x.hours !== d.hours))}
-                  className="cursor-pointer rounded p-0.5 text-inkmute hover:bg-dangersoft hover:text-danger"
-                  aria-label="حذف بازه"
-                >
-                  <IconX size={12} />
-                </button>
-              )}
-            </span>
-          ))}
-        </div>
-        <div className="mt-4 flex items-end gap-2 rounded-xl bg-black/[0.03] p-3">
-          <div className="flex-1">
-            <label className="lbl">ساعت</label>
-            <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={newHours} onChange={(e) => setNewHours(e.target.value)} placeholder="8" />
+      <div className="space-y-4">
+        <div className="card p-4">
+          <h3 className="font-display text-base text-ink">پاداش مشتری و آماده‌سازی</h3>
+          <div className="mt-3 grid gap-3 sm:grid-cols-3">
+            <div>
+              <label className="lbl">ساعت لازم برای پاداش</label>
+              <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={rewardHours} onChange={(e) => setRewardHours(e.target.value)} />
+            </div>
+            <div>
+              <label className="lbl">درصد تخفیف پاداش</label>
+              <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={rewardPct} onChange={(e) => setRewardPct(e.target.value)} />
+            </div>
+            <div>
+              <label className="lbl">زمان آماده‌سازی (دقیقه، حداکثر ۵)</label>
+              <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={prep} onChange={(e) => setPrep(e.target.value)} />
+            </div>
           </div>
-          <div className="flex-1">
-            <label className="lbl">عنوان</label>
-            <input className="inp" value={newLabel} onChange={(e) => setNewLabel(e.target.value)} placeholder="۸ ساعته" />
-          </div>
-          <Btn
-            variant="dark"
-            onClick={() => {
-              const h = parseInt(newHours, 10);
-              if (!h || h <= 0) {
-                toast.push("err", "ساعت معتبر وارد کنید");
-                return;
-              }
-              setDurations([...s.durations, { hours: h, label: newLabel.trim() || `${faNum(h)} ساعته` }]);
-              setNewHours("");
-              setNewLabel("");
-            }}
-          >
-            <IconPlus size={14} />
-            افزودن
+          <p className="mt-2 text-[11px] leading-5 text-inkmute">
+            هر {faNum(parseInt(rewardHours, 10) || s.rewardThresholdHours)} ساعت اجاره تکمیل‌شده، یک تخفیف {faNum(parseInt(rewardPct, 10) || s.rewardDiscountPercent)}٪ روی کل فاکتور بعدی باز می‌کند.
+            زمان شروع اجاره به‌صورت خودکار «الان + زمان آماده‌سازی» است.
+          </p>
+          <Btn className="mt-3" onClick={saveRules}>
+            <IconCheck size={15} />
+            ذخیره قوانین
           </Btn>
+        </div>
+
+        <div className="card p-4">
+          <h3 className="font-display text-base text-ink">بازه‌های زمانی اجاره (ثابت)</h3>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {s.durations.map((d) => (
+              <span key={d.hours} className="rounded-xl border border-linedeep px-3 py-1.5 text-xs font-bold text-ink">
+                {d.label}
+              </span>
+            ))}
+          </div>
+          <p className="mt-2 text-[11px] text-inkmute">فهرست بازه‌ها طبق استاندارد فروشگاه ثابت است و تغییر نمی‌کند</p>
         </div>
       </div>
     </div>

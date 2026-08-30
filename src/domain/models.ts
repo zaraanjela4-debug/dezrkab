@@ -47,12 +47,22 @@ export interface Bike {
   createdAt: number;
 }
 
+/** یک بار مصرف‌شدن تخفیف جایزه — برای تاریخچه مشتری */
+export interface DiscountUse {
+  at: number;
+  rentalId: string;
+  rentalNumber: number;
+}
+
 export interface Customer {
   id: string;
   name: string;
   phone: string;
   idNumber: string;
   note: string;
+  /** شمارنده ساعت‌های اجاره تکمیل‌شده برای پاداش — بعد از مصرف تخفیف صفر می‌شود */
+  completedHours: number;
+  discountUses: DiscountUse[];
   createdAt: number;
 }
 
@@ -85,6 +95,10 @@ export interface Rental {
   actualEndAt: number | null;
   subtotal: number;
   discount: number;
+  /** درصد تخفیف پاداش اعمال‌شده — برای ردیابی مصرف جایزه */
+  discountRate: number;
+  /** آیا تخفیف از سامانه پاداش مشتری آمده است؟ */
+  discountAuto: boolean;
   lateFee: number;
   depositTotal: number;
   total: number;
@@ -170,6 +184,12 @@ export interface Settings {
   graceMinutes: number;
   releaseDelayMinutes: number;
   lateMultiplier: number;
+  /** زمان آماده‌سازی دوچرخه قبل از شروع اجاره — دقیقه (حداکثر ۵) */
+  prepMinutes: number;
+  /** هر چند ساعت اجاره تکمیل‌شده، یک تخفیف باز می‌شود */
+  rewardThresholdHours: number;
+  /** درصد تخفیف پاداش — روی کل فاکتور */
+  rewardDiscountPercent: number;
   durations: DurationOption[];
   accounts: PaymentAccount[];
 }

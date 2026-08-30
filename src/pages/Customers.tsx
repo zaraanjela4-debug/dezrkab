@@ -7,6 +7,7 @@ import { Badge, Btn, Empty, Modal, useToast } from "../ui/kit";
 import { STATUS_LABEL } from "../services/rentalService";
 import {
   IconEdit,
+  IconGift,
   IconIdCard,
   IconPhone,
   IconPlus,
@@ -91,9 +92,9 @@ export default function Customers() {
                 <tr className="border-b border-line bg-black/[0.02] text-start text-[11px] font-bold text-inkmute">
                   <th className="px-4 py-2.5 text-start">مشتری</th>
                   <th className="px-4 py-2.5 text-start">تماس</th>
-                  <th className="px-4 py-2.5 text-start">مدارک</th>
+                  <th className="px-4 py-2.5 text-start">ساعت تکمیل‌شده</th>
+                  <th className="px-4 py-2.5 text-start">تخفیف {faNum(db.settings.rewardDiscountPercent)}٪</th>
                   <th className="px-4 py-2.5 text-start">اجاره‌ها</th>
-                  <th className="px-4 py-2.5 text-start">مجموع پرداخت</th>
                   <th className="px-4 py-2.5 text-start">آخرین اجاره</th>
                 </tr>
               </thead>
@@ -124,11 +125,31 @@ export default function Customers() {
                           <span dir="ltr">{c.phone}</span>
                         </span>
                       </td>
-                      <td className="num px-4 py-3 text-inksoft" dir="ltr">{c.idNumber || "—"}</td>
+                      <td className="px-4 py-3">
+                        <span className="flex items-center gap-2">
+                          <span className="num text-xs font-extrabold text-ink">
+                            {faNum(st.completedHours)} از {faNum(st.threshold)} ساعت
+                          </span>
+                          <span className="h-1.5 w-16 overflow-hidden rounded-full bg-black/10">
+                            <span
+                              className={`block h-full rounded-full ${st.discountAvailable ? "bg-ok" : "bg-brand"}`}
+                              style={{ width: `${Math.min(100, (st.completedHours / st.threshold) * 100)}%` }}
+                            />
+                          </span>
+                        </span>
+                      </td>
+                      <td className="px-4 py-3">
+                        {st.discountAvailable ? (
+                          <Badge tone="ok">آماده مصرف</Badge>
+                        ) : (
+                          <span className="num text-[11px] font-bold text-inkmute">
+                            {faNum(st.hoursUntilReward)} ساعت مانده
+                          </span>
+                        )}
+                      </td>
                       <td className="px-4 py-3">
                         <Badge tone={st.count > 3 ? "brand" : "neutral"}>{faNum(st.count)} اجاره</Badge>
                       </td>
-                      <td className="num px-4 py-3 font-bold text-ink">{money(st.paid)}</td>
                       <td className="px-4 py-3 text-xs text-inksoft">{st.lastAt ? fmtDate(st.lastAt) : "—"}</td>
                     </tr>
                   );
@@ -207,6 +228,47 @@ export default function Customers() {
                 </Btn>
               </div>
             )}
+
+            {/* پاداش و تخفیف */}
+            <div className={`rounded-xl border p-3.5 ${selStats.discountAvailable ? "border-ok/40 bg-oksoft/60" : "border-line bg-black/[0.02]"}`}>
+              <div className="flex items-center justify-between">
+                <h4 className={`flex items-center gap-2 font-display text-base ${selStats.discountAvailable ? "text-ok" : "text-ink"}`}>
+                  <IconGift size={17} />
+                  پاداش مشتری
+                </h4>
+                {selStats.discountAvailable ? (
+                  <Badge tone="ok">تخفیف {faNum(selStats.discountPercent)}٪ آماده مصرف</Badge>
+                ) : (
+                  <Badge tone="neutral">{faNum(selStats.hoursUntilReward)} ساعت تا تخفیف</Badge>
+                )}
+              </div>
+              <p className="num mt-1.5 text-xs font-bold text-inksoft">
+                اجاره تکمیل‌شده: {faNum(selStats.completedHours)} از {faNum(selStats.threshold)} ساعت
+                {selStats.discountAvailable
+                  ? " — روی کل فاکتور بعدی اعمال می‌شود"
+                  : ` — هر ${faNum(selStats.threshold)} ساعت، ${faNum(selStats.discountPercent)}٪ تخفیف روی کل فاکتور`}
+              </p>
+              <div className="mt-2 h-2 overflow-hidden rounded-full bg-black/10">
+                <div
+                  className={`h-full rounded-full transition-all duration-500 ${selStats.discountAvailable ? "bg-ok" : "bg-brand"}`}
+                  style={{ width: `${Math.min(100, (selStats.completedHours / selStats.threshold) * 100)}%` }}
+                />
+              </div>
+              {selStats.discountUses.length > 0 && (
+                <div className="mt-3 border-t border-line pt-2.5">
+                  <p className="text-[11px] font-extrabold text-inksoft">تاریخچه مصرف تخفیف</p>
+                  <ul className="mt-1.5 space-y-1">
+                    {selStats.discountUses.map((u) => (
+                      <li key={u.rentalId} className="num flex items-center justify-between rounded-lg bg-white px-3 py-1.5 text-[11px]">
+                        <span className="font-extrabold text-ink">اجاره #{faNum(u.rentalNumber)}</span>
+                        <span className="text-inkmute">{fmtDateTime(u.at)}</span>
+                        <Badge tone="brand">{faNum(selStats.discountPercent)}٪</Badge>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
 
             <div>
               <h4 className="mb-2 text-xs font-extrabold text-inksoft">تاریخچه اجاره ({faNum(selRentals.length)})</h4>

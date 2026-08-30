@@ -6,7 +6,7 @@ import { auditService } from "./auditService";
 import { authService, requirePerm } from "./authService";
 
 export const settingsService = {
-  updateGeneral(patch: Partial<Pick<Settings, "storeName" | "currency" | "graceMinutes" | "releaseDelayMinutes" | "lateMultiplier">>): void {
+  updateGeneral(patch: Partial<Pick<Settings, "storeName" | "currency" | "graceMinutes" | "releaseDelayMinutes" | "lateMultiplier" | "prepMinutes" | "rewardThresholdHours" | "rewardDiscountPercent">>): void {
     requirePerm(authService.requireUser(), "settings.manage");
     mutate((draft) => {
       if (patch.storeName !== undefined) {
@@ -26,6 +26,24 @@ export const settingsService = {
           throw new Error("ضریب جریمه باید بین ۱ تا ۵ باشد");
         }
         draft.settings.lateMultiplier = patch.lateMultiplier;
+      }
+      if (patch.prepMinutes !== undefined) {
+        if (patch.prepMinutes < 0 || patch.prepMinutes > 5) {
+          throw new Error("زمان آماده‌سازی باید بین ۰ تا ۵ دقیقه باشد");
+        }
+        draft.settings.prepMinutes = patch.prepMinutes;
+      }
+      if (patch.rewardThresholdHours !== undefined) {
+        if (patch.rewardThresholdHours < 1 || patch.rewardThresholdHours > 100) {
+          throw new Error("حد نصاب ساعت پاداش نامعتبر است");
+        }
+        draft.settings.rewardThresholdHours = patch.rewardThresholdHours;
+      }
+      if (patch.rewardDiscountPercent !== undefined) {
+        if (patch.rewardDiscountPercent < 1 || patch.rewardDiscountPercent > 90) {
+          throw new Error("درصد تخفیف پاداش باید بین ۱ تا ۹۰ باشد");
+        }
+        draft.settings.rewardDiscountPercent = patch.rewardDiscountPercent;
       }
       authService.withActor(draft, (d) =>
         auditService.log(d, "تغییر تنظیمات", "settings", "general", "تنظیمات عمومی به‌روزرسانی شد")

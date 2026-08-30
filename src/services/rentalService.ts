@@ -2,8 +2,12 @@
  * اجاره حضوری — قلب سامانه
  * اعتبارسنجی و commit داخل همان mutate اتمیک انجام می‌شود؛
  * دو درخواست همزمان هرگز نمی‌توانند موجودی را منفی کنند (oversell ممنوع).
+ *
+ * پاداش مشتری: اگر discountAuto فعال باشد و مشتری به حد نصاب ساعت رسیده باشد،
+ * تخفیف روی کل فاکتور اعمال می‌شود و شمارنده پاداش فقط بعد از ثبت موفق اجاره صفر می‌شود.
+ * لغو اجاره، تخفیف را برنمی‌گرداند که مصرف‌شده تلقی شود — واجد‌شرط بودن دوباره برمی‌گردد.
  */
-import type { Rental, RentalStatus } from "../domain/models";
+import type { Customer, Rental, RentalStatus } from "../domain/models";
 import { mutate } from "../storage/storage";
 import { faNum, uid } from "../utils/format";
 import { auditService } from "./auditService";
@@ -22,14 +26,16 @@ export const STATUS_LABEL: Record<RentalStatus, string> = {
 };
 
 export interface CreateRentalInput {
-  customerId: string;
+  /** مشتری موجود (id) یا مشتری جدیدی که فقط هنگام تأیید ذخیره می‌شود */
+  customer: { id?: string; name?: string; phone?: string };
   items: Array<{ categoryId: string; qty: number }>;
   hours: number;
   startAt: number;
-  discount: number;
   note: string;
   depositAmount: number;
   accountId: string;
+  /** اعمال خودکار تخفیف پاداش مشتری روی کل فاکتور */
+  discountAuto: boolean;
 }
 
 export const rentalService = {
@@ -44,15 +50,42 @@ export const rentalService = {
     }
 
     return mutate((draft) => {
-      const customer = draft.customers.find((c) => c.id === input.customerId);
-      if (!customer) throw new Error("مشتری را انتخاب یا ثبت کنید");
+      /* ---------- مشتری: موجود را پیدا کن یا همین‌جا بساز ---------- */
+      let customer: Customer;
+      if (input.customer.id) {
+        const found = draft.customers.find((c) => c.id === input.customer.id);
+        if (!found) throw new Error("مشتری پیدا نشد — دوباره جستجو کنید");
+        customer = found;
+      } else {
+        const name = (input.customer.name ?? "").trim().replace(/\s+/g, " ");
+        const phone = (input.customer.phone ?? "").trim().replace(/\s/g, "");
+        if (!name) throw new Error("نام و نام خانوادگی مشتری را وارد کنید");
+        if (!/^0\d{10}$/.test(phone)) throw new Error("شماره تماس باید ۱۱ رقمی و با ۰ شروع شود");
+        const dup = draft.customers.find((c) => c.phone === phone);
+        if (dup) {
+          throw new Error(`«${dup.name}» با همین شماره ثبت شده — او را از نتایج جستجو انتخاب کنید`);
+        }
+        customer = {
+          id: uid(),
+          name,
+          phone,
+          idNumber: "",
+          note: "",
+          completedHours: 0,
+          discountUses: [],
+          createdAt: Date.now(),
+        };
+        draft.customers.push(customer);
+        auditService.log(draft, "ثبت مشتری", "customer", customer.id, `${name} — ${phone}`);
+      }
+
       for (const c of draft.categories) {
         if (!c.active && items.some((i) => i.categoryId === c.id)) {
           throw new Error(`دسته «${c.name}» غیرفعال است`);
         }
       }
 
-      // بررسی موجودی قبل از هر تغییری — تراکنش یا کامل انجام می‌شود یا اصلاً
+      /* ---------- بررسی موجودی قبل از هر تغییری — اتمیک ---------- */
       for (const it of items) {
         const cat = draft.categories.find((c) => c.id === it.categoryId);
         if (!cat) throw new Error("دسته دوچرخه پیدا نشد");
@@ -66,7 +99,14 @@ export const rentalService = {
         }
       }
 
-      const quote = pricingService.quote(draft, items, input.hours, input.discount);
+      /* ---------- تخفیف پاداش: روی کل فاکتور، نه هر دوچرخه ---------- */
+      let discountRate = 0;
+      if (input.discountAuto && customer.completedHours >= draft.settings.rewardThresholdHours) {
+        discountRate = draft.settings.rewardDiscountPercent;
+      }
+      const quote = pricingService.quote(draft, items, input.hours, 0);
+      const discount = Math.round((quote.subtotal * discountRate) / 100);
+
       const now = Date.now();
       const rental: Rental = {
         id: uid(),
@@ -86,10 +126,12 @@ export const rentalService = {
         plannedEndAt: (input.startAt || now) + input.hours * 3_600_000,
         actualEndAt: null,
         subtotal: quote.subtotal,
-        discount: quote.discount,
+        discount,
+        discountRate,
+        discountAuto: discountRate > 0,
         lateFee: 0,
         depositTotal: quote.depositTotal,
-        total: quote.total,
+        total: quote.subtotal - discount,
         status: "ACTIVE",
         note: input.note.trim(),
         cancelledAt: null,
@@ -98,7 +140,7 @@ export const rentalService = {
         createdAt: now,
       };
 
-      // تخصیص دوچرخه‌های فیزیکی — به‌ترتیب شماره، از موجودهای آزاد
+      /* ---------- تخصیص دوچرخه‌های فیزیکی ---------- */
       for (const it of items) {
         const free = draft.bikes
           .filter(
@@ -128,6 +170,23 @@ export const rentalService = {
           accountId: input.accountId,
           note: "ودیعه هنگام اجاره",
         });
+      }
+
+      /* ---------- مصرف پاداش فقط بعد از ثبت موفق اجاره ---------- */
+      if (discountRate > 0) {
+        customer.completedHours = 0;
+        customer.discountUses.unshift({
+          at: now,
+          rentalId: rental.id,
+          rentalNumber: rental.number,
+        });
+        auditService.log(
+          draft,
+          "مصرف تخفیف پاداش",
+          "customer",
+          customer.id,
+          `${customer.name} — ${faNum(discountRate)}٪ تخفیف روی اجاره #${faNum(rental.number)} اعمال شد و شمارنده صفر شد`
+        );
       }
 
       authService.withActor(draft, (d) =>
@@ -165,6 +224,23 @@ export const rentalService = {
       rental.status = "CANCELLED";
       rental.cancelledAt = Date.now();
       rental.cancelReason = reason.trim();
+
+      /* اگر تخفیف پاداش مصرف شده بود، لغو آن را «مصرف‌نشده» برمی‌گرداند */
+      if (rental.discountAuto && rental.discountRate > 0) {
+        const c = draft.customers.find((x) => x.id === rental.customerId);
+        if (c) {
+          c.discountUses = c.discountUses.filter((u) => u.rentalId !== rental.id);
+          c.completedHours = Math.max(c.completedHours, draft.settings.rewardThresholdHours);
+          auditService.log(
+            draft,
+            "بازگشت تخفیف به‌دلیل لغو",
+            "customer",
+            c.id,
+            `${c.name} دوباره واجد تخفیف ${faNum(rental.discountRate)}٪ شد`
+          );
+        }
+      }
+
       authService.withActor(draft, (d) =>
         auditService.log(
           d,
@@ -176,9 +252,5 @@ export const rentalService = {
       );
       return rental;
     });
-  },
-
-  byNumber(dbRentalNumber: number) {
-    return dbRentalNumber;
   },
 };

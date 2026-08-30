@@ -30,6 +30,8 @@ export const customerService = {
         phone,
         idNumber: input.idNumber.trim(),
         note: input.note.trim(),
+        completedHours: 0,
+        discountUses: [],
         createdAt: Date.now(),
       };
       draft.customers.push(customer);
@@ -76,6 +78,20 @@ export const customerService = {
       );
     }, 0);
     const lastAt = rentals.length ? Math.max(...rentals.map((r) => r.createdAt)) : null;
-    return { count: rentals.length, cancelled, paid, lastAt };
+    const customer = db.customers.find((c) => c.id === customerId);
+    const completedHours = customer?.completedHours ?? 0;
+    const threshold = db.settings.rewardThresholdHours;
+    return {
+      count: rentals.length,
+      cancelled,
+      paid,
+      lastAt,
+      completedHours,
+      threshold,
+      discountPercent: db.settings.rewardDiscountPercent,
+      discountAvailable: completedHours >= threshold,
+      hoursUntilReward: Math.max(0, threshold - completedHours),
+      discountUses: customer?.discountUses ?? [],
+    };
   },
 };

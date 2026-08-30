@@ -1,556 +1,839 @@
-import { useEffect, useMemo, useState } from "react";
-import type { Rental } from "../domain/models";
-import { navigate, useRoute } from "../state/app";
+/**
+ * اجاره حضوری — پیشخوان POS
+ * ترتیب ثابت: شماره تماس → مشتری → مدت → دوچرخه‌ها → تأیید (Enter) → فاکتور (Enter) → چاپ (Enter)
+ */
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import type { Customer, Rental } from "../domain/models";
+import { useAuth, useNow, useRoute } from "../state/app";
+import { useDB } from "../storage/storage";
 import { availabilityService } from "../services/availabilityService";
 import { customerService } from "../services/customerService";
 import { pricingService } from "../services/pricingService";
 import { rentalService } from "../services/rentalService";
-import { useDB } from "../storage/storage";
-import {
-  faNum,
-  fmtDateTime,
-  fromLocalInput,
-  money,
-  toLocalInput,
-} from "../utils/format";
-import { Badge, Btn, KV, Modal, Stepper, useToast } from "../ui/kit";
+import { durationLabel, faNum, fmtDateTime, fmtTime, money } from "../utils/format";
+import { Btn, Modal, useToast } from "../ui/kit";
 import {
   IconBike,
   IconCheck,
-  IconClipboard,
-  IconClock,
+  IconEdit,
   IconMinus,
+  IconPhone,
   IconPlus,
-  IconSearch,
-  IconUser,
-  IconX,
+  IconPrint,
+  IconTimer,
 } from "../ui/icons";
 
-function StepTitle({ n, title, sub }: { n: string; title: string; sub?: string }) {
-  return (
-    <div className="mb-3 flex items-center gap-2.5">
-      <span className="grid size-7 shrink-0 place-items-center rounded-full bg-coal font-display text-sm text-white">
-        {n}
-      </span>
-      <div>
-        <h2 className="text-sm font-extrabold text-ink">{title}</h2>
-        {sub ? <p className="text-[11px] text-inkmute">{sub}</p> : null}
-      </div>
-    </div>
-  );
-}
+type Stage = "phone" | "duration" | "bikes" | "confirm";
 
 export default function NewRental() {
   const db = useDB();
-  const route = useRoute();
+  const { user } = useAuth();
   const toast = useToast();
+  const route = useRoute();
+  const now = useNow(1000);
+  const S = db.settings;
 
-  const [qty, setQty] = useState<Record<string, number>>({});
-  const [customerId, setCustomerId] = useState<string | null>(null);
-  const [query, setQuery] = useState("");
-  const [showNewCus, setShowNewCus] = useState(false);
-  const [nc, setNc] = useState({ name: "", phone: "", idNumber: "", note: "" });
-  const [hours, setHours] = useState<number>(db.settings.durations[1]?.hours ?? 2);
-  const [startMode, setStartMode] = useState<"now" | "at">("now");
-  const [startAt, setStartAt] = useState(() => toLocalInput(Date.now()));
-  const [discount, setDiscount] = useState("");
-  const [note, setNote] = useState("");
-  const [depositStr, setDepositStr] = useState("");
-  const [accountId, setAccountId] = useState(
-    () => db.settings.accounts.find((a) => a.active)?.id ?? ""
-  );
-  const [receipt, setReceipt] = useState<Rental | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [phone, setPhone] = useState("");
+  const [phoneTried, setPhoneTried] = useState(false);
+  const [customer, setCustomer] = useState<Customer | null>(null);
+  const [newCust, setNewCust] = useState({ first: "", last: "" });
+  const [stage, setStage] = useState<Stage>("phone");
+  const [durIdx, setDurIdx] = useState(1); // پیش‌فرض: 1 ساعت
+  const [hours, setHours] = useState<number | null>(null);
+  const [qtys, setQtys] = useState<Record<string, number>>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [confirmed, setConfirmed] = useState<{ rental: Rental; startAt: number } | null>(null);
+  const [printed, setPrinted] = useState(false);
+  const [shakeKey, setShakeKey] = useState("");
 
-  const availability = useMemo(
-    () => new Map(availabilityService.snapshot(db).map((a) => [a.category.id, a.available])),
-    [db]
-  );
+  const phoneRef = useRef<HTMLInputElement>(null);
+  const firstRef = useRef<HTMLInputElement>(null);
+  const lastRef = useRef<HTMLInputElement>(null);
 
-  // پیش‌انتخاب دسته از پارامتر لینک (کلیک روی کارت موجودی در پیشخوان)
   useEffect(() => {
     const code = route.params.get("cat");
-    if (!code) return;
-    const cat = db.categories.find((c) => c.code === code && c.active);
-    if (cat && (availability.get(cat.id) ?? 0) > 0) {
-      setQty((q) => ({ ...q, [cat.id]: 1 }));
+    if (code) {
+      const cat = db.categories.find((c) => c.code === code && c.active);
+      if (cat) setQtys({ [cat.id]: 1 });
     }
-    // فقط بار اول
+    phoneRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  const activeCats = db.categories.filter((c) => c.active);
-  const selectedItems = Object.entries(qty)
-    .filter(([, n]) => n > 0)
-    .map(([categoryId, n]) => ({ categoryId, qty: n }));
+  /* ----------------------------- داده‌های زنده ----------------------------- */
+  const phoneNorm = phone.replace(/\s/g, "");
+  const matches = phoneNorm ? customerService.search(db, phoneNorm).slice(0, 4) : [];
+  const exact = matches.find((m) => m.phone === phoneNorm) ?? null;
+  const phoneValid = /^0\d{10}$/.test(phoneNorm);
+  const newMode = !customer && phoneValid && !exact;
+  const newReady = newMode && newCust.first.trim() !== "" && newCust.last.trim() !== "";
+  const customerReady = !!customer || newReady;
+  const fullName = customer ? customer.name : `${newCust.first} ${newCust.last}`.trim();
 
-  const discountNum = Math.max(0, parseInt(discount, 10) || 0);
+  const threshold = S.rewardThresholdHours;
+  const pct = S.rewardDiscountPercent;
+  const eligible = customerReady && (customer?.completedHours ?? 0) >= threshold;
+
+  const availability = availabilityService.snapshot(db, now);
+  const totalUnits = Object.values(qtys).reduce((s, q) => s + q, 0);
+
   const quote = useMemo(() => {
-    if (selectedItems.length === 0) return null;
+    if (!hours || totalUnits === 0) return null;
     try {
-      return pricingService.quote(db, selectedItems, hours, discountNum);
+      const items = Object.entries(qtys)
+        .filter(([, q]) => q > 0)
+        .map(([categoryId, qty]) => ({ categoryId, qty }));
+      const q = pricingService.quote(db, items, hours, 0);
+      const discount = eligible ? Math.round((q.subtotal * pct) / 100) : 0;
+      return { ...q, discount, final: q.subtotal - discount };
     } catch {
       return null;
     }
-  }, [db, selectedItems, hours, discountNum]);
+  }, [db, qtys, hours, eligible, pct, totalUnits]);
 
-  const depositValue =
-    depositStr === "" ? (quote?.depositTotal ?? 0) : Math.max(0, parseInt(depositStr, 10) || 0);
+  /* شروع خودکار: الان + زمان آماده‌سازی (گرد به دقیقه) */
+  const startAt = Math.ceil((now + S.prepMinutes * 60_000) / 60_000) * 60_000;
 
-  const customer = customerId ? db.customers.find((c) => c.id === customerId) : null;
-  const results = useMemo(
-    () => customerService.search(db, query).slice(0, 6),
-    [db, query]
-  );
+  /* ------------------------------ اصلاح خودکار ------------------------------ */
+  useEffect(() => {
+    if (confirmed) return;
+    if (!customerReady && stage !== "phone") {
+      setStage("phone");
+      setHours(null);
+      setQtys({});
+    } else if (hours === null && (stage === "bikes" || stage === "confirm")) {
+      setStage("duration");
+    } else if (hours !== null && totalUnits === 0 && stage === "confirm") {
+      setStage("bikes");
+    }
+  }, [customerReady, hours, totalUnits, stage, confirmed]);
 
-  const startTs = startMode === "now" ? Date.now() : fromLocalInput(startAt);
-  const unitsCount = selectedItems.reduce((s, i) => s + i.qty, 0);
+  /* -------------------------------- اکشن‌ها -------------------------------- */
+  const bump = (k: string) => {
+    setShakeKey("");
+    requestAnimationFrame(() => setShakeKey(k));
+    window.setTimeout(() => setShakeKey(""), 650);
+  };
 
-  function resetAll() {
-    setQty({});
-    setCustomerId(null);
-    setQuery("");
-    setShowNewCus(false);
-    setNc({ name: "", phone: "", idNumber: "", note: "" });
-    setDiscount("");
-    setNote("");
-    setDepositStr("");
-    setStartMode("now");
-    setStartAt(toLocalInput(Date.now()));
-  }
+  const selectCustomer = (c: Customer) => {
+    setCustomer(c);
+    setPhone(c.phone);
+    setPhoneTried(false);
+    setStage("duration");
+  };
 
-  function submit() {
-    if (!customerId) {
-      toast.push("err", "مشتری را انتخاب یا ثبت کنید");
+  const changeCustomer = () => {
+    setCustomer(null);
+    setNewCust({ first: "", last: "" });
+    setHours(null);
+    setQtys({});
+    setPhone("");
+    setStage("phone");
+    window.setTimeout(() => phoneRef.current?.focus(), 30);
+  };
+
+  const onPhoneEnter = () => {
+    setPhoneTried(true);
+    if (exact) return selectCustomer(exact);
+    if (matches.length === 1 && phoneNorm.length >= 8) return selectCustomer(matches[0]);
+    if (newMode) {
+      firstRef.current?.focus();
       return;
     }
-    if (selectedItems.length === 0) {
-      toast.push("err", "حداقل یک دوچرخه انتخاب کنید");
+    bump("phone");
+  };
+
+  const confirmNew = () => {
+    if (!newCust.first.trim()) {
+      firstRef.current?.focus();
+      bump("newcust");
       return;
     }
-    if (!accountId) {
-      toast.push("err", "حساب دریافت ودیعه را انتخاب کنید");
+    if (!newCust.last.trim()) {
+      lastRef.current?.focus();
+      bump("newcust");
       return;
     }
-    setBusy(true);
+    setStage("duration");
+  };
+
+  const pickDuration = (i: number) => {
+    setDurIdx(i);
+    setHours(S.durations[i].hours);
+    setStage("bikes");
+  };
+
+  const setQty = (catId: string, v: number, max: number) => {
+    const clamped = Math.max(0, Math.min(max, v));
+    setQtys((q) => {
+      const next = { ...q };
+      if (clamped === 0) delete next[catId];
+      else next[catId] = clamped;
+      return next;
+    });
+  };
+
+  const confirmRental = () => {
+    if (submitting || !hours || totalUnits === 0 || !customerReady) return;
+    setSubmitting(true);
     try {
+      const items = Object.entries(qtys)
+        .filter(([, q]) => q > 0)
+        .map(([categoryId, qty]) => ({ categoryId, qty }));
+      const startMs = Math.ceil((Date.now() + S.prepMinutes * 60_000) / 60_000) * 60_000;
       const rental = rentalService.createRental({
-        customerId,
-        items: selectedItems,
+        customer: customer ? { id: customer.id } : { name: fullName, phone: phoneNorm },
+        items,
         hours,
-        startAt: startTs,
-        discount: discountNum,
-        note,
-        depositAmount: depositValue,
-        accountId,
+        startAt: startMs,
+        note: "",
+        depositAmount: 0,
+        accountId: S.accounts[0]?.id ?? "",
+        discountAuto: true,
       });
-      toast.push("ok", `اجاره #${faNum(rental.number)} ثبت شد — رکاب خوش بگذره!`);
-      setReceipt(rental);
-    } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "ثبت اجاره ناموفق بود");
+      setConfirmed({ rental, startAt: startMs });
+      setPrinted(false);
+      toast.push("ok", `اجاره #${faNum(rental.number)} ثبت شد — Enter برای چاپ فاکتور`);
+    } catch (err) {
+      toast.push("err", err instanceof Error ? err.message : "ثبت اجاره ناموفق بود");
+      bump("confirm");
     } finally {
-      setBusy(false);
+      setSubmitting(false);
     }
-  }
+  };
 
-  function addCustomer() {
-    try {
-      const c = customerService.add(nc);
-      setCustomerId(c.id);
-      setShowNewCus(false);
-      setQuery("");
-      toast.push("ok", `مشتری «${c.name}» ثبت شد`);
-    } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "ثبت مشتری ناموفق بود");
-    }
-  }
+  const doPrint = () => {
+    setPrinted(true);
+    window.print();
+  };
+
+  const resetAll = () => {
+    setConfirmed(null);
+    setPhone("");
+    setPhoneTried(false);
+    setCustomer(null);
+    setNewCust({ first: "", last: "" });
+    setHours(null);
+    setDurIdx(1);
+    setQtys({});
+    setStage("phone");
+    setPrinted(false);
+    window.setTimeout(() => phoneRef.current?.focus(), 30);
+  };
+
+  /* ------------------------- کیبورد سراسری (POS) ------------------------- */
+  useEffect(() => {
+    const h = (e: KeyboardEvent) => {
+      if (e.key !== "Enter" && e.key !== "ArrowLeft" && e.key !== "ArrowRight") return;
+      const t = e.target as HTMLElement | null;
+      const inField =
+        !!t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT");
+      if (confirmed) {
+        if (e.key === "Enter" && !inField) {
+          e.preventDefault();
+          if (!printed) doPrint();
+          else resetAll();
+        }
+        return;
+      }
+      if (inField) return;
+      if (stage === "duration") {
+        if (e.key === "ArrowRight") {
+          e.preventDefault();
+          setDurIdx((i) => Math.max(0, i - 1));
+        } else if (e.key === "ArrowLeft") {
+          e.preventDefault();
+          setDurIdx((i) => Math.min(S.durations.length - 1, i + 1));
+        } else if (e.key === "Enter") {
+          e.preventDefault();
+          pickDuration(durIdx);
+        }
+      } else if (stage === "bikes" && e.key === "Enter") {
+        e.preventDefault();
+        if (totalUnits > 0) setStage("confirm");
+        else bump("bikes");
+      } else if (stage === "confirm" && e.key === "Enter") {
+        e.preventDefault();
+        confirmRental();
+      }
+    };
+    window.addEventListener("keydown", h);
+    return () => window.removeEventListener("keydown", h);
+  });
+
+  /* ------------------------------- وضعیت مراحل ------------------------------- */
+  const phoneState: StepState = customerReady && stage !== "phone" ? "done" : "active";
+  const durationState: StepState = !customerReady
+    ? "locked"
+    : stage === "duration"
+      ? "active"
+      : hours !== null
+        ? "done"
+        : "active";
+  const bikesState: StepState = hours === null ? "locked" : stage === "confirm" ? "done" : "active";
+  const confirmState: StepState = stage === "confirm" ? "active" : "locked";
+  const durLabel = hours !== null
+    ? S.durations.find((d) => d.hours === hours)?.label ?? durationLabel(hours)
+    : null;
+
+  const bikeSummary = Object.entries(qtys)
+    .filter(([, q]) => q > 0)
+    .map(([id, q]) => {
+      const c = db.categories.find((x) => x.id === id);
+      return `${faNum(q)} × ${c?.name ?? "?"}`;
+    })
+    .join("، ");
 
   return (
     <div className="grid items-start gap-4 xl:grid-cols-12">
-      <div className="space-y-4 xl:col-span-8">
-        {/* ۱ — انتخاب دوچرخه */}
-        <section className="anim-up card p-4">
-          <StepTitle n="۱" title="انتخاب دوچرخه" sub="دسته + تعداد — موجودی همان لحظه کسر می‌شود" />
-          <div className="space-y-2">
-            {activeCats.map((cat) => {
-              const avail = availability.get(cat.id) ?? 0;
-              const val = qty[cat.id] ?? 0;
+      {/* ------------------------------- ستون مراحل ------------------------------- */}
+      <div className="space-y-3 xl:col-span-8">
+        {/* مرحله ۱ — شماره تماس */}
+        <StepCard
+          n={1}
+          title="شماره تماس"
+          state={phoneState}
+          shake={shakeKey === "phone"}
+          onEdit={changeCustomer}
+          summary={
+            customerReady ? (
+              <div className="flex items-center gap-2.5">
+                <span className="grid size-8 place-items-center rounded-full bg-coal font-display text-sm text-white">
+                  {fullName.slice(0, 1)}
+                </span>
+                <span className="text-sm font-extrabold text-ink">{fullName}</span>
+                <span className="num text-xs text-inkmute" dir="ltr">{phoneNorm}</span>
+                {eligible && (
+                  <span className="rounded-full bg-oksoft px-2.5 py-0.5 text-[11px] font-extrabold text-ok">
+                    {faNum(pct)}٪ تخفیف فعال
+                  </span>
+                )}
+              </div>
+            ) : null
+          }
+        >
+          <div className="relative">
+            <input
+              ref={phoneRef}
+              dir="ltr"
+              inputMode="numeric"
+              className="inp num px-11 text-xl font-extrabold tracking-[0.15em]"
+              style={{ textAlign: "left" }}
+              placeholder="09xxxxxxxxx"
+              value={phone}
+              autoFocus
+              onChange={(e) => {
+                setPhone(e.target.value.replace(/[^0-9]/g, "").slice(0, 11));
+                setPhoneTried(false);
+              }}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  onPhoneEnter();
+                }
+              }}
+            />
+            <span className="pointer-events-none absolute start-3.5 top-1/2 -translate-y-1/2 text-inkmute">
+              <IconPhone size={20} />
+            </span>
+          </div>
+
+          {phoneTried && !phoneValid && !customer && (
+            <p className="mt-1.5 text-[11px] font-bold text-danger">
+              شماره تماس باید ۱۱ رقمی و با ۰ شروع شود
+            </p>
+          )}
+
+          {/* نتایج جستجو — بلافاصله هنگام تایپ */}
+          {!customer && matches.length > 0 && (
+            <ul className="mt-2.5 space-y-1.5">
+              {matches.map((m) => {
+                const mEligible = m.completedHours >= threshold;
+                return (
+                  <li key={m.id}>
+                    <button
+                      onClick={() => selectCustomer(m)}
+                      className={`anim-pop flex w-full cursor-pointer items-center gap-3 rounded-xl border-2 px-3.5 py-2.5 text-start transition-all hover:border-brand ${
+                        exact?.id === m.id ? "border-ok bg-oksoft/60" : "border-line bg-white"
+                      }`}
+                    >
+                      <span className="grid size-9 shrink-0 place-items-center rounded-full bg-coal font-display text-sm text-white">
+                        {m.name.slice(0, 1)}
+                      </span>
+                      <span className="flex-1">
+                        <span className="block text-sm font-extrabold text-ink">{m.name}</span>
+                        <span className="num block text-[11px] text-inkmute" dir="ltr">{m.phone}</span>
+                      </span>
+                      {mEligible && (
+                        <span className="rounded-full bg-oksoft px-2.5 py-0.5 text-[11px] font-extrabold text-ok">
+                          {faNum(pct)}٪ تخفیف فعال
+                        </span>
+                      )}
+                      <span className="text-[11px] font-bold text-branddeep">Enter ↵</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {/* مشتری جدید — بدون پیشنهاد جعلی، بدون ساخت موقت */}
+          {newMode && (
+            <div className={`anim-pop mt-3 rounded-xl border-2 border-dashed border-linedeep bg-black/[0.02] p-3.5 ${shakeKey === "newcust" ? "anim-shake" : ""}`}>
+              <p className="text-xs font-extrabold text-inksoft">
+                مشتری‌ای با این شماره پیدا نشد — نام را وارد کنید
+                <span className="ms-2 font-normal text-inkmute">(بعد از تأیید اجاره ذخیره می‌شود)</span>
+              </p>
+              <div className="mt-2.5 grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className="lbl">نام *</label>
+                  <input
+                    ref={firstRef}
+                    className="inp text-base"
+                    value={newCust.first}
+                    onChange={(e) => setNewCust({ ...newCust, first: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        lastRef.current?.focus();
+                      }
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="lbl">نام خانوادگی *</label>
+                  <input
+                    ref={lastRef}
+                    className="inp text-base"
+                    value={newCust.last}
+                    onChange={(e) => setNewCust({ ...newCust, last: e.target.value })}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        confirmNew();
+                      }
+                    }}
+                  />
+                </div>
+              </div>
+              <p className="mt-1.5 text-[11px] text-inkmute">Enter ↵ برای ادامه</p>
+            </div>
+          )}
+        </StepCard>
+
+        {/* مرحله ۲ — مدت اجاره */}
+        <StepCard
+          n={2}
+          title="مدت اجاره"
+          state={durationState}
+          onEdit={() => setStage("duration")}
+          summary={durLabel ? <span className="rounded-lg bg-brandsoft px-3 py-1 font-display text-base text-branddeep">{durLabel}</span> : null}
+        >
+          <div className="grid grid-cols-3 gap-2 sm:grid-cols-7">
+            {S.durations.map((d, i) => {
+              const selected = hours === d.hours || (hours === null && i === durIdx);
+              return (
+                <button
+                  key={d.hours}
+                  onClick={() => pickDuration(i)}
+                  onMouseEnter={() => setDurIdx(i)}
+                  className={`cursor-pointer rounded-xl border-2 px-1 py-3 text-center transition-all duration-100 ${
+                    selected
+                      ? "border-brand bg-brandsoft shadow-[0_4px_14px_rgba(255,138,0,0.18)]"
+                      : "border-line bg-white hover:border-linedeep"
+                  }`}
+                >
+                  <span className={`block font-display text-lg leading-6 ${selected ? "text-branddeep" : "text-ink"}`}>
+                    {d.label}
+                  </span>
+                  {hours === null && i === durIdx && (
+                    <span className="mt-0.5 block text-[10px] font-bold text-branddeep">↵</span>
+                  )}
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-[11px] text-inkmute">
+            با کلیدهای <Kbd>→</Kbd> <Kbd>←</Kbd> انتخاب و <Kbd>Enter</Kbd> تأیید کنید — پیش‌فرض: 1 ساعت
+          </p>
+        </StepCard>
+
+        {/* مرحله ۳ — دوچرخه‌ها */}
+        <StepCard
+          n={3}
+          title="دوچرخه‌ها"
+          state={bikesState}
+          shake={shakeKey === "bikes"}
+          onEdit={() => setStage("bikes")}
+          summary={bikeSummary ? <span className="text-sm font-extrabold text-ink">{bikeSummary}</span> : null}
+        >
+          <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
+            {availability.map((a) => {
+              const q = qtys[a.category.id] ?? 0;
+              const out = a.available === 0;
               return (
                 <div
-                  key={cat.id}
-                  className={`flex flex-wrap items-center gap-3 rounded-xl border p-3 transition-colors ${
-                    val > 0 ? "border-brand bg-brandsoft/50" : "border-line"
-                  } ${avail === 0 ? "opacity-60" : ""}`}
+                  key={a.category.id}
+                  className={`overflow-hidden rounded-xl border-2 bg-white transition-all duration-150 ${
+                    q > 0 ? "border-brand shadow-[0_6px_18px_rgba(255,138,0,0.15)]" : out ? "border-line opacity-50" : "border-line"
+                  }`}
                 >
-                  <span className="grid size-10 place-items-center rounded-lg bg-coal font-display text-lg text-white">
-                    {cat.code}
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-extrabold text-ink">{cat.name}</p>
-                    <p className="num text-[11px] text-inkmute">
-                      {money(cat.hourlyRate)} / ساعت — ودیعه {money(cat.deposit)}
-                    </p>
+                  {/* جای خالی تصویر دوچرخه — برای عکس واقعی در آینده */}
+                  <div className={`grid h-20 place-items-center border-b-2 border-dashed border-line ${q > 0 ? "bg-brandsoft/50" : "bg-black/[0.025]"}`}>
+                    <IconBike size={34} className={q > 0 ? "text-branddeep/70" : "text-inkmute/50"} />
                   </div>
-                  {avail === 0 ? (
-                    <Badge tone="danger">ناموجود</Badge>
-                  ) : (
-                    <>
-                      <Badge tone={avail <= 2 ? "warn" : "ok"}>{faNum(avail)} موجود</Badge>
-                      <Stepper
-                        value={val}
-                        max={avail}
-                        onChange={(v) => setQty((q) => ({ ...q, [cat.id]: v }))}
-                      />
-                    </>
-                  )}
+                  <div className="p-2.5">
+                    <div className="flex items-center justify-between">
+                      <span className="grid size-7 place-items-center rounded-md bg-coal font-display text-sm text-white">
+                        {a.category.code}
+                      </span>
+                      <span className="num text-[10px] font-bold text-inkmute">از مجموع {faNum(a.total)}</span>
+                    </div>
+                    <p className="mt-1.5 text-sm font-extrabold text-ink">{a.category.name}</p>
+                    <p className={`num text-[11px] font-extrabold ${out ? "text-danger" : "text-ok"}`}>
+                      {faNum(a.available)} موجود
+                    </p>
+                    <div className="mt-2 flex items-center justify-between gap-1">
+                      <button
+                        onClick={() => setQty(a.category.id, q - 1, a.available)}
+                        disabled={q === 0}
+                        className="grid size-11 cursor-pointer place-items-center rounded-xl border-2 border-linedeep text-ink transition-all hover:border-danger hover:bg-dangersoft hover:text-danger active:scale-90 disabled:pointer-events-none disabled:opacity-25"
+                        aria-label="کاهش"
+                      >
+                        <IconMinus size={20} />
+                      </button>
+                      <span className={`num w-8 text-center font-display text-2xl ${q > 0 ? "text-branddeep" : "text-inkmute"}`}>
+                        {q > 0 ? faNum(q) : "—"}
+                      </span>
+                      <button
+                        onClick={() => setQty(a.category.id, q + 1, a.available)}
+                        disabled={out || q >= a.available}
+                        className="grid size-11 cursor-pointer place-items-center rounded-xl border-2 border-brand bg-brand text-white transition-all hover:bg-branddeep active:scale-90 disabled:pointer-events-none disabled:opacity-25"
+                        aria-label="افزایش"
+                      >
+                        <IconPlus size={20} />
+                      </button>
+                    </div>
+                  </div>
                 </div>
               );
             })}
           </div>
-          {unitsCount > 0 && (
-            <p className="mt-3 text-xs font-bold text-branddeep">
-              {faNum(unitsCount)} دستگاه انتخاب شد — موجودی به‌صورت زنده بررسی می‌شود
+          <div className="mt-3 flex items-center justify-between">
+            <p className="text-[11px] text-inkmute">موجودی لحظه‌ای از سامانه مرکزی — انتخاب بیش از موجودی ممکن نیست</p>
+            <p className="num text-xs font-extrabold text-inksoft">
+              {totalUnits > 0 ? `${faNum(totalUnits)} دستگاه انتخاب شد — Enter ↵` : "دوچرخه انتخاب کنید"}
             </p>
-          )}
-        </section>
+          </div>
+        </StepCard>
 
-        {/* ۲ — مشتری */}
-        <section className="anim-up card p-4" style={{ animationDelay: "60ms" }}>
-          <StepTitle n="۲" title="مشتری" sub="جستجو با نام یا شماره موبایل — مشتری تکراری ساخته نمی‌شود" />
-
-          {customer ? (
-            <div className="flex items-center gap-3 rounded-xl border border-ok/40 bg-oksoft/60 p-3">
-              <span className="grid size-10 place-items-center rounded-full bg-ok text-white">
-                <IconUser size={20} />
-              </span>
-              <div className="flex-1">
-                <p className="text-sm font-extrabold text-ink">{customer.name}</p>
-                <p className="num text-[11px] text-inksoft" dir="ltr">
-                  {customer.phone}
-                </p>
-              </div>
-              <Badge tone="ok">
-                <IconCheck size={12} />
-                انتخاب شد
-              </Badge>
-              <button
-                onClick={() => setCustomerId(null)}
-                className="cursor-pointer rounded-lg p-1.5 text-inksoft hover:bg-black/5"
-                aria-label="حذف مشتری"
-              >
-                <IconX size={16} />
-              </button>
-            </div>
-          ) : (
-            <>
-              <div className="relative">
-                <input
-                  className="inp ps-10"
-                  placeholder="نام یا شماره موبایل…"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-inkmute">
-                  <IconSearch size={17} />
-                </span>
-              </div>
-              <ul className="mt-2 divide-y divide-line overflow-hidden rounded-xl border border-line">
-                {results.length === 0 ? (
-                  <li className="p-3 text-center text-xs font-bold text-inkmute">
-                    مشتری‌ای پیدا نشد — «مشتری جدید» را بزنید
-                  </li>
-                ) : (
-                  results.map((c) => (
-                    <li key={c.id}>
-                      <button
-                        onClick={() => {
-                          setCustomerId(c.id);
-                          setQuery("");
-                        }}
-                        className="flex w-full cursor-pointer items-center gap-3 px-3 py-2.5 text-start transition-colors hover:bg-brandsoft/60"
-                      >
-                        <span className="grid size-8 place-items-center rounded-full bg-black/5 text-inksoft">
-                          <IconUser size={16} />
-                        </span>
-                        <span className="flex-1 text-sm font-bold text-ink">{c.name}</span>
-                        <span className="num text-xs text-inksoft" dir="ltr">
-                          {c.phone}
-                        </span>
-                        <span className="num text-[11px] text-inkmute">
-                          {faNum(customerService.stats(db, c.id).count)} اجاره
-                        </span>
-                      </button>
-                    </li>
-                  ))
-                )}
-              </ul>
-              <button
-                onClick={() => setShowNewCus((s) => !s)}
-                className="mt-2 inline-flex cursor-pointer items-center gap-1 text-xs font-bold text-branddeep hover:underline"
-              >
-                {showNewCus ? <IconMinus size={13} /> : <IconPlus size={13} />}
-                مشتری جدید
-              </button>
-
-              {showNewCus && (
-                <div className="anim-pop mt-3 grid gap-3 rounded-xl border border-line bg-black/[0.02] p-3 sm:grid-cols-2">
-                  <div>
-                    <label className="lbl">نام و نام خانوادگی *</label>
-                    <input className="inp" value={nc.name} onChange={(e) => setNc({ ...nc, name: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="lbl">موبایل *</label>
-                    <input className="inp num" dir="ltr" style={{ textAlign: "left" }} value={nc.phone} onChange={(e) => setNc({ ...nc, phone: e.target.value })} placeholder="09xxxxxxxxx" />
-                  </div>
-                  <div>
-                    <label className="lbl">کد ملی / شماره مدارک</label>
-                    <input className="inp num" dir="ltr" style={{ textAlign: "left" }} value={nc.idNumber} onChange={(e) => setNc({ ...nc, idNumber: e.target.value })} />
-                  </div>
-                  <div>
-                    <label className="lbl">یادداشت</label>
-                    <input className="inp" value={nc.note} onChange={(e) => setNc({ ...nc, note: e.target.value })} />
-                  </div>
-                  <div className="sm:col-span-2">
-                    <Btn variant="ok" size="sm" onClick={addCustomer}>
-                      <IconCheck size={14} />
-                      ثبت و انتخاب مشتری
-                    </Btn>
-                  </div>
+        {/* مرحله ۴ — تأیید نهایی */}
+        <StepCard n={4} title="تأیید و شروع اجاره" state={confirmState} shake={shakeKey === "confirm"}>
+          <div className="grid gap-4 md:grid-cols-2">
+            <div className="space-y-1 text-sm">
+              <Row k="مشتری" v={fullName} />
+              <Row k="تلفن" v={<span dir="ltr" className="num">{phoneNorm}</span>} />
+              <Row k="مدت" v={durLabel ?? "—"} />
+              <Row k="دوچرخه‌ها" v={bikeSummary || "—"} />
+              {eligible && (
+                <div className="mt-2 flex items-center gap-2 rounded-xl bg-oksoft px-3 py-2 text-xs font-extrabold text-ok">
+                  <IconCheck size={14} />
+                  تخفیف {faNum(pct)}٪ روی کل فاکتور اعمال می‌شود — شمارنده پاداش بعد از ثبت صفر می‌شود
                 </div>
               )}
-            </>
-          )}
-        </section>
-
-        {/* ۳ — زمان و مدت */}
-        <section className="anim-up card p-4" style={{ animationDelay: "120ms" }}>
-          <StepTitle n="۳" title="زمان و مدت اجاره" sub="قیمت بر اساس نرخ ساعتی هر دسته محاسبه می‌شود" />
-          <div className="flex flex-wrap gap-2">
-            {db.settings.durations.map((d) => (
-              <button
-                key={d.hours}
-                onClick={() => setHours(d.hours)}
-                className={`cursor-pointer rounded-xl border px-4 py-2 text-sm font-bold transition-all ${
-                  hours === d.hours
-                    ? "border-brand bg-brand text-white shadow-[0_4px_14px_rgba(255,138,0,0.3)]"
-                    : "border-linedeep bg-white text-inksoft hover:border-brand hover:text-brand"
-                }`}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-3">
-            <div className="sm:col-span-1">
-              <label className="lbl">شروع اجاره</label>
-              <div className="flex gap-1 rounded-xl border border-linedeep p-1">
-                <button
-                  onClick={() => setStartMode("now")}
-                  className={`flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-bold transition-colors ${
-                    startMode === "now" ? "bg-coal text-white" : "text-inksoft hover:bg-black/5"
-                  }`}
-                >
-                  همین حالا
-                </button>
-                <button
-                  onClick={() => setStartMode("at")}
-                  className={`flex-1 cursor-pointer rounded-lg px-2 py-1.5 text-xs font-bold transition-colors ${
-                    startMode === "at" ? "bg-coal text-white" : "text-inksoft hover:bg-black/5"
-                  }`}
-                >
-                  ساعت خاص
-                </button>
-              </div>
             </div>
-            {startMode === "at" && (
-              <div className="anim-pop sm:col-span-1">
-                <label className="lbl">زمان شروع</label>
-                <input
-                  type="datetime-local"
-                  className="inp num"
-                  dir="ltr"
-                  value={startAt}
-                  onChange={(e) => setStartAt(e.target.value)}
-                />
+            <div>
+              <div className="rounded-xl bg-coal p-4 text-white">
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-1.5 text-xs text-white/60">
+                    <IconTimer size={14} />
+                    شروع (خودکار)
+                  </span>
+                  <span className="num font-display text-2xl">{fmtTime(startAt)}</span>
+                </div>
+                <p className="num mt-0.5 text-end text-[10px] text-white/40">
+                  الان {fmtTime(now)} + {faNum(S.prepMinutes)} دقیقه آماده‌سازی
+                </p>
+                <div className="mt-2 flex items-center justify-between border-t border-white/10 pt-2">
+                  <span className="text-xs text-white/60">برگشت مورد انتظار</span>
+                  <span className="num font-display text-2xl text-brand">
+                    {hours !== null ? fmtTime(startAt + hours * 3_600_000) : "—"}
+                  </span>
+                </div>
               </div>
-            )}
-            <div className="sm:col-span-1">
-              <label className="lbl">تخفیف (تومان)</label>
-              <input
-                className="inp num"
-                dir="ltr"
-                style={{ textAlign: "left" }}
-                type="number"
-                min={0}
-                value={discount}
-                onChange={(e) => setDiscount(e.target.value)}
-                placeholder="0"
-              />
+              <Btn size="lg" className="mt-3 w-full text-lg" onClick={confirmRental} disabled={submitting}>
+                <IconCheck size={20} />
+                تأیید نهایی — Enter ↵
+              </Btn>
             </div>
           </div>
-
-          <div className="mt-3">
-            <label className="lbl">یادداشت اجاره</label>
-            <textarea
-              className="inp min-h-[64px] resize-y"
-              value={note}
-              onChange={(e) => setNote(e.target.value)}
-              placeholder="مثلاً: تحویل در پارک لاله، ساعت ۶ برگشت"
-            />
-          </div>
-        </section>
+        </StepCard>
       </div>
 
-      {/* فاکتور */}
-      <aside className="anim-up xl:col-span-4 xl:sticky xl:top-4 card overflow-hidden">
-        <div className="flex items-center gap-2.5 border-b border-line bg-coal px-4 py-3.5 text-white">
-          <IconClipboard size={20} className="text-brand" />
-          <h2 className="font-display text-lg">فاکتور اجاره</h2>
-          {unitsCount > 0 && (
-            <Badge tone="brand" className="ms-auto bg-brand text-white">
-              {faNum(unitsCount)} دستگاه
-            </Badge>
-          )}
-        </div>
-        <div className="p-4">
-          {!quote ? (
-            <div className="rounded-xl border border-dashed border-linedeep p-6 text-center">
-              <IconBike size={30} className="mx-auto text-inkmute" />
-              <p className="mt-2 text-xs font-bold text-inksoft">
-                هنوز دوچرخه‌ای انتخاب نشده
-              </p>
-              <p className="mt-1 text-[11px] text-inkmute">
-                از بخش ۱ دسته و تعداد را مشخص کنید
-              </p>
-            </div>
-          ) : (
-            <div className="space-y-1">
-              {quote.lines.map((l) => (
-                <div key={l.categoryId} className="flex items-center justify-between text-sm">
-                  <span className="font-bold text-inksoft">
-                    {faNum(l.qty)} × {l.name}
-                    <span className="ms-1 text-[11px] text-inkmute">({faNum(hours)} ساعت)</span>
-                  </span>
-                  <span className="num font-extrabold text-ink">{money(l.lineTotal)}</span>
-                </div>
-              ))}
-              <div className="my-2 border-t border-dashed border-linedeep" />
-              <KV k="جمع اجاره" v={money(quote.subtotal)} />
-              {quote.discount > 0 && <KV k="تخفیف" v={<span className="text-danger">− {money(quote.discount)}</span>} />}
-              <KV k="مبلغ اجاره" v={money(quote.total)} strong />
-            </div>
-          )}
-
-          <div className="mt-4 space-y-3 rounded-xl bg-black/[0.03] p-3">
-            <div>
-              <div className="flex items-center justify-between">
-                <label className="lbl mb-0">ودیعه دریافتی الآن</label>
-                <button
-                  className="cursor-pointer text-[11px] font-bold text-branddeep hover:underline"
-                  onClick={() => setDepositStr("")}
-                >
-                  کل ودیعه ({quote ? money(quote.depositTotal) : "—"})
-                </button>
-              </div>
-              <input
-                className="inp num mt-1"
-                dir="ltr"
-                style={{ textAlign: "left" }}
-                type="number"
-                min={0}
-                value={depositStr === "" ? (quote?.depositTotal ?? 0) : depositStr}
-                onChange={(e) => setDepositStr(e.target.value)}
-              />
-              <p className="mt-1 text-[11px] text-inkmute">
-                ودیعه نزد فروشگاه می‌ماند و هنگام تسویه برگشت یا به اجاره منظور می‌شود
-              </p>
-            </div>
-            <div>
-              <label className="lbl">حساب دریافت</label>
-              <select className="inp" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
-                {db.settings.accounts.filter((a) => a.active).map((a) => (
-                  <option key={a.id} value={a.id}>
-                    {a.name}
-                  </option>
-                ))}
-              </select>
-            </div>
+      {/* ------------------------------- پیش‌فاکتور زنده ------------------------------- */}
+      <aside className="space-y-3 xl:sticky xl:top-20 xl:col-span-4">
+        <div className="card overflow-hidden">
+          <div className="flex items-center justify-between border-b border-line px-4 py-3">
+            <h3 className="font-display text-lg text-ink">پیش‌فاکتور</h3>
+            <span className="flex items-center gap-1.5 text-[11px] font-bold text-ok">
+              <span className="dot-live size-2 rounded-full bg-ok" />
+              محاسبه زنده
+            </span>
           </div>
+          <div className="p-4">
+            <MiniRow k="مشتری" v={fullName || "—"} />
+            <MiniRow k="مدت" v={durLabel ?? "—"} />
+            <MiniRow k="شروع" v={fmtTime(startAt)} />
+            <div className="my-3 border-t-2 border-dashed border-line" />
+            {!quote ? (
+              <p className="py-2 text-center text-xs text-inkmute">
+                مدت و دوچرخه را انتخاب کنید تا قیمت همین‌جا حساب شود
+              </p>
+            ) : (
+              <>
+                {quote.lines.map((l) => (
+                  <MiniRow
+                    key={l.categoryId}
+                    v={money(l.lineTotal)}
+                    k={
+                      <span className="num">
+                        <b className="text-ink">{l.code}</b> — {l.name} × {faNum(l.qty)}
+                      </span>
+                    }
+                  />
+                ))}
+                <div className="my-3 border-t-2 border-dashed border-line" />
+                {quote.discount > 0 ? (
+                  <>
+                    <MiniRow k="قیمت اصلی" v={<span className="num text-inkmute line-through">{money(quote.subtotal)}</span>} />
+                    <MiniRow
+                      k={<span className="font-extrabold text-ok">تخفیف {faNum(pct)}٪</span>}
+                      v={<span className="num font-extrabold text-ok">− {money(quote.discount)}</span>}
+                    />
+                  </>
+                ) : null}
+                <div className="mt-1 flex items-center justify-between rounded-xl bg-coal px-3.5 py-2.5 text-white">
+                  <span className="text-xs font-bold text-white/70">قابل پرداخت</span>
+                  <span className="num font-display text-2xl text-brand">{money(quote.final)}</span>
+                </div>
+              </>
+            )}
 
-          {quote && (
-            <div className="mt-3 flex items-center justify-between rounded-xl bg-brandsoft px-3 py-2.5">
-              <span className="text-xs font-bold text-branddeep">سررسید برگشت</span>
-              <span className="num flex items-center gap-1.5 text-xs font-extrabold text-branddeep">
-                <IconClock size={14} />
-                {fmtDateTime(startTs + hours * 3_600_000)}
-              </span>
-            </div>
-          )}
+            {/* وضعیت پاداش مشتری */}
+            {customerReady && customer && (
+              <div className={`mt-3 rounded-xl px-3.5 py-2.5 ${eligible ? "bg-oksoft" : "bg-black/[0.03]"}`}>
+                <div className="flex items-center justify-between text-[11px] font-extrabold">
+                  <span className={eligible ? "text-ok" : "text-inksoft"}>
+                    {eligible ? "پاداش آماده مصرف!" : "پاداش مشتری"}
+                  </span>
+                  <span className={`num ${eligible ? "text-ok" : "text-inkmute"}`}>
+                    {faNum(Math.min(customer.completedHours, threshold))} از {faNum(threshold)} ساعت
+                  </span>
+                </div>
+                <div className="mt-1.5 h-1.5 overflow-hidden rounded-full bg-black/10">
+                  <div
+                    className={`h-full rounded-full transition-all duration-500 ${eligible ? "bg-ok" : "bg-brand"}`}
+                    style={{ width: `${Math.min(100, (customer.completedHours / threshold) * 100)}%` }}
+                  />
+                </div>
+                {!eligible && (
+                  <p className="num mt-1 text-[10px] text-inkmute">
+                    {faNum(threshold - customer.completedHours)} ساعت اجاره تکمیل‌شده تا تخفیف {faNum(pct)}٪
+                  </p>
+                )}
+              </div>
+            )}
+            {newMode && (
+              <p className="mt-3 rounded-xl bg-black/[0.03] px-3.5 py-2.5 text-[11px] font-bold text-inksoft">
+                مشتری جدید — پاداش از اولین اجاره شروع می‌شود
+              </p>
+            )}
+          </div>
+        </div>
 
-          <Btn size="lg" className="mt-4 w-full" onClick={submit} disabled={busy || !quote || !customer}>
-            <IconCheck size={18} />
-            {busy ? "در حال ثبت…" : "ثبت اجاره و دریافت ودیعه"}
-          </Btn>
-          {!customer && quote && (
-            <p className="mt-2 text-center text-[11px] font-bold text-warn">
-              ابتدا مشتری را انتخاب کنید (بخش ۲)
-            </p>
-          )}
+        <div className="card px-4 py-3">
+          <p className="mb-2 text-[11px] font-extrabold text-inkmute">عملیات سریع (POS)</p>
+          <div className="space-y-1.5 text-[11px] font-bold text-inksoft">
+            <p className="flex items-center justify-between">تأیید / ادامه <Kbd>Enter ↵</Kbd></p>
+            <p className="flex items-center justify-between">انتخاب مدت <span className="flex gap-1"><Kbd>→</Kbd><Kbd>←</Kbd></span></p>
+            <p className="flex items-center justify-between">تعداد دوچرخه <span className="text-inkmute">کلیک موس</span></p>
+            <p className="flex items-center justify-between">چاپ فاکتور <Kbd>Enter ↵</Kbd></p>
+          </div>
         </div>
       </aside>
 
-      {/* رسید */}
-      <Modal open={!!receipt} onClose={() => setReceipt(null)} title="اجاره ثبت شد">
-        {receipt && (
-          <div>
-            <div className="flex items-center justify-between rounded-xl bg-oksoft px-4 py-3">
-              <div>
-                <p className="text-xs font-bold text-ok">شماره اجاره</p>
-                <p className="num font-display text-3xl text-ink">#{faNum(receipt.number)}</p>
-              </div>
-              <Badge tone="ok">{rentalServiceStatus(receipt.status)}</Badge>
-            </div>
-            <div className="mt-4 space-y-1">
-              <KV k="مشتری" v={db.customers.find((c) => c.id === receipt.customerId)?.name ?? "—"} />
-              {receipt.items.map((i) => (
-                <KV key={i.categoryId} k={`${faNum(i.qty)} × ${i.name}`} v={money(i.hourlyRate * i.qty * receipt.hours)} />
-              ))}
-              <div className="my-2 border-t border-dashed border-linedeep" />
-              <KV k="شروع" v={fmtDateTime(receipt.startAt)} />
-              <KV k="سررسید برگشت" v={fmtDateTime(receipt.plannedEndAt)} />
-              <KV k="مبلغ اجاره" v={money(receipt.total)} strong />
-              <KV k="ودیعه دریافت‌شده" v={money(depositValue)} />
-            </div>
-            <div className="mt-5 flex gap-2">
-              <Btn
-                variant="outline"
-                className="flex-1"
-                onClick={() => {
-                  setReceipt(null);
-                  resetAll();
-                }}
-              >
-                اجاره بعدی
-              </Btn>
-              <Btn
-                className="flex-1"
-                onClick={() => {
-                  setReceipt(null);
-                  resetAll();
-                  navigate("dashboard");
-                }}
-              >
-                بازگشت به پیشخوان
-              </Btn>
-            </div>
-          </div>
-        )}
+      {/* ------------------------------- فاکتور نهایی ------------------------------- */}
+      <Modal
+        open={!!confirmed}
+        onClose={resetAll}
+        title={confirmed ? `فاکتور اجاره #${faNum(confirmed.rental.number)}` : ""}
+      >
+        {confirmed && <Receipt rental={confirmed.rental} startAt={confirmed.startAt} operatorName={user?.name ?? ""} />}
+        <div className="mt-4 flex gap-2">
+          <Btn className="flex-1" onClick={doPrint}>
+            <IconPrint size={16} />
+            {printed ? "چاپ دوباره — Enter ↵" : "چاپ فاکتور — Enter ↵"}
+          </Btn>
+          <Btn variant="dark" className="flex-1" onClick={resetAll}>
+            اجاره بعدی — Enter ↵
+          </Btn>
+        </div>
       </Modal>
     </div>
   );
 }
 
-function rentalServiceStatus(s: Rental["status"]): string {
-  return s === "ACTIVE" ? "فعال" : s;
+/* ------------------------------ اجزای کمکی ------------------------------ */
+
+type StepState = "done" | "active" | "locked";
+
+function StepCard({
+  n,
+  title,
+  state,
+  summary,
+  onEdit,
+  children,
+  shake,
+}: {
+  n: number;
+  title: string;
+  state: StepState;
+  summary?: ReactNode;
+  onEdit?: () => void;
+  children?: ReactNode;
+  shake?: boolean;
+}) {
+  return (
+    <section
+      className={`card overflow-hidden transition-opacity duration-200 ${state === "locked" ? "opacity-40" : ""} ${shake ? "anim-shake" : ""}`}
+    >
+      <header className="flex min-h-14 items-center gap-3 border-b border-line px-4 py-2.5">
+        <span
+          className={`grid size-8 shrink-0 place-items-center rounded-full font-display text-base transition-colors ${
+            state === "done" ? "bg-ok text-white" : state === "active" ? "bg-brand text-white" : "bg-black/10 text-inksoft"
+          }`}
+        >
+          {state === "done" ? <IconCheck size={16} /> : faNum(n)}
+        </span>
+        <h3 className="flex-1 font-display text-lg text-ink">{title}</h3>
+        {state === "done" && (
+          <>
+            {summary}
+            {onEdit && (
+              <button
+                onClick={onEdit}
+                className="flex cursor-pointer items-center gap-1 rounded-lg px-2 py-1 text-[11px] font-bold text-inksoft transition-colors hover:bg-black/5 hover:text-ink"
+              >
+                <IconEdit size={13} />
+                ویرایش
+              </button>
+            )}
+          </>
+        )}
+      </header>
+      {state !== "locked" && <div className={`p-4 ${state === "done" && n === 1 ? "hidden" : ""}`}>{children}</div>}
+    </section>
+  );
+}
+
+function Kbd({ children }: { children: ReactNode }) {
+  return (
+    <kbd className="rounded-md border border-linedeep bg-black/[0.04] px-1.5 py-0.5 font-body text-[10px] font-extrabold text-inksoft">
+      {children}
+    </kbd>
+  );
+}
+
+function Row({ k, v }: { k: string; v: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between border-b border-dashed border-line py-1.5">
+      <span className="text-inksoft">{k}</span>
+      <span className="font-extrabold text-ink">{v}</span>
+    </div>
+  );
+}
+
+function MiniRow({ k, v }: { k: ReactNode; v: ReactNode }) {
+  return (
+    <div className="flex items-center justify-between py-1 text-sm">
+      <span className="text-inksoft">{k}</span>
+      <span className="num font-bold text-ink">{v}</span>
+    </div>
+  );
+}
+
+/* ------------------------------- فاکتور چاپی ------------------------------- */
+
+function Receipt({ rental, startAt, operatorName }: { rental: Rental; startAt: number; operatorName: string }) {
+  const db = useDB();
+  const S = db.settings;
+  const cust = db.customers.find((c) => c.id === rental.customerId);
+  const dur = S.durations.find((d) => d.hours === rental.hours)?.label ?? durationLabel(rental.hours);
+
+  const bars = Array.from({ length: 28 }, (_, i) => ((rental.number * 7 + i * 13) % 3) === 0);
+
+  return (
+    <div className="print-root mx-auto max-w-sm rounded-xl border-2 border-dashed border-linedeep bg-white p-5">
+      <div className="text-center">
+        <p className="font-display text-2xl text-ink">{S.storeName}</p>
+        <p className="text-[11px] font-bold text-inksoft">فاکتور اجاره دوچرخه</p>
+      </div>
+      <div className="my-3 border-t-2 border-dashed border-line" />
+      <div className="space-y-1 text-[13px]">
+        <ReceiptRow k="شماره اجاره" v={`#${faNum(rental.number)}`} bold />
+        <ReceiptRow k="تاریخ" v={fmtDateTime(rental.createdAt)} />
+        <ReceiptRow k="مشتری" v={cust?.name ?? "—"} bold />
+        <ReceiptRow k="تلفن" v={<span dir="ltr" className="num">{cust?.phone ?? "—"}</span>} />
+        <ReceiptRow k="مدت اجاره" v={dur} />
+        <ReceiptRow k="شروع" v={fmtTime(startAt)} />
+        <ReceiptRow k="برگشت مورد انتظار" v={fmtTime(rental.plannedEndAt)} />
+      </div>
+      <div className="my-3 border-t-2 border-dashed border-line" />
+      {rental.items.map((it) => (
+        <div key={it.categoryId} className="num flex items-center justify-between py-0.5 text-[13px]">
+          <span className="font-bold text-ink">
+            {it.code} — {it.name} <span className="text-inkmute">× {faNum(it.qty)}</span>
+          </span>
+          <span className="text-ink">{money(it.hourlyRate * it.qty * rental.hours)}</span>
+        </div>
+      ))}
+      <div className="my-3 border-t-2 border-dashed border-line" />
+      <ReceiptRow k="قیمت اصلی" v={<span className={rental.discount > 0 ? "line-through opacity-60" : ""}>{money(rental.subtotal)}</span>} />
+      {rental.discount > 0 && (
+        <ReceiptRow
+          k={<span className="font-extrabold text-ok">تخفیف {faNum(rental.discountRate)}٪</span>}
+          v={<span className="font-extrabold text-ok">− {money(rental.discount)}</span>}
+        />
+      )}
+      <div className="mt-1.5 flex items-center justify-between rounded-lg bg-coal px-3 py-2 text-white">
+        <span className="text-xs font-bold text-white/75">قابل پرداخت</span>
+        <span className="num font-display text-xl text-brand">{money(rental.total)}</span>
+      </div>
+      <div className="my-3 border-t-2 border-dashed border-line" />
+      <div className="space-y-1 text-[12px] text-inksoft">
+        <ReceiptRow k="وضعیت" v="فعال" />
+        <ReceiptRow k="پرداخت" v="هنگام برگشت و تسویه" />
+        <ReceiptRow k="اپراتور" v={operatorName} />
+      </div>
+      <div className="mt-4 flex h-9 items-stretch justify-center gap-[2px]">
+        {bars.map((wide, i) => (
+          <span key={i} className={`bg-ink ${wide ? "w-[3px]" : "w-px"}`} />
+        ))}
+      </div>
+      <p className="num mt-1 text-center text-[10px] font-bold text-inkmute">#{faNum(rental.number)}</p>
+      <p className="mt-3 text-center text-[11px] font-bold text-inksoft">
+        این فاکتور را هنگام برگشت دوچرخه همراه داشته باشید
+      </p>
+    </div>
+  );
+}
+
+function ReceiptRow({ k, v, bold }: { k: ReactNode; v: ReactNode; bold?: boolean }) {
+  return (
+    <div className="num flex items-center justify-between">
+      <span className="text-inksoft">{k}</span>
+      <span className={bold ? "font-extrabold text-ink" : "font-semibold text-ink"}>{v}</span>
+    </div>
+  );
 }

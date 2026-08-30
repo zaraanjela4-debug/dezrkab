@@ -219,3 +219,28 @@ export const IconWallet = (p: IconProps) => (
     <path d="M15 12.5h5v3h-5a1.5 1.5 0 0 1 0-3z" />
   </svg>
 );
+
+export const IconPrint = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <path d="M7 8V3.5h10V8" />
+    <rect x="4" y="8" width="16" height="8" rx="1.5" />
+    <path d="M7 13.5h10v7H7z" />
+    <path d="M17.2 10.8v.01" />
+  </svg>
+);
+
+export const IconTimer = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <circle cx="12" cy="13.5" r="7.5" />
+    <path d="M12 9.5v4l2.6 2.6" />
+    <path d="M9.5 2.5h5M12 2.5V6" />
+  </svg>
+);
+
+export const IconGift = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <rect x="3.5" y="8" width="17" height="4" rx="1" />
+    <path d="M5.5 12v8.5h13V12M12 8v12.5" />
+    <path d="M12 8s-4.8.3-5.5-2.2C6 3.9 8.6 2.6 10 4c1.5 1.5 2 4 2 4zM12 8s4.8.3 5.5-2.2C18 3.9 15.4 2.6 14 4c-1.5 1.5-2 4-2 4z" />
+  </svg>
+);

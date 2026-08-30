@@ -75,6 +75,11 @@ export const returnService = {
 
       if (full) {
         rental.actualEndAt = now;
+        /* پاداش مشتری: ساعت‌های اجاره تکمیل‌شده به شمارنده اضافه می‌شود */
+        const cust = draft.customers.find((c) => c.id === rental.customerId);
+        if (cust) {
+          cust.completedHours = (cust.completedHours ?? 0) + rental.hours;
+        }
         lateFee = pricingService.lateFeeFor(draft.settings, rental.items, rental.plannedEndAt, now);
         rental.lateFee = lateFee;
         rental.total = rental.subtotal - rental.discount + lateFee;

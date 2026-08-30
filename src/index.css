@@ -176,3 +176,27 @@ body {
   background-image: radial-gradient(rgba(34, 34, 34, 0.045) 1px, transparent 1px);
   background-size: 18px 18px;
 }
+
+/* چاپ فاکتور — فقط رسید چاپ شود */
+@media print {
+  body * {
+    visibility: hidden !important;
+  }
+  .print-root,
+  .print-root * {
+    visibility: visible !important;
+  }
+  .print-root {
+    position: fixed !important;
+    inset: 0 !important;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    border: none !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+}
