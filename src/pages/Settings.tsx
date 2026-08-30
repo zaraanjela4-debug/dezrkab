@@ -66,7 +66,7 @@ function CatsTab() {
   const db = useDB();
   const toast = useToast();
   const [addOpen, setAddOpen] = useState(false);
-  const [form, setForm] = useState({ code: "", name: "", hourlyRate: "", deposit: "" });
+  const [form, setForm] = useState({ code: "", name: "", hourlyRate: "" });
 
   function changeStock(catId: string, delta: number) {
     try {
@@ -84,11 +84,10 @@ function CatsTab() {
         code: form.code,
         name: form.name,
         hourlyRate: parseInt(form.hourlyRate, 10) || 0,
-        deposit: parseInt(form.deposit, 10) || 0,
       });
       toast.push("ok", "دسته جدید اضافه شد");
       setAddOpen(false);
-      setForm({ code: "", name: "", hourlyRate: "", deposit: "" });
+      setForm({ code: "", name: "", hourlyRate: "" });
     } catch (e) {
       toast.push("err", e instanceof Error ? e.message : "ناموفق");
     }
@@ -109,7 +108,6 @@ function CatsTab() {
             <th className="px-4 py-2.5 text-start">کد</th>
             <th className="px-4 py-2.5 text-start">نام</th>
             <th className="px-4 py-2.5 text-start">نرخ ساعتی</th>
-            <th className="px-4 py-2.5 text-start">ودیعه</th>
             <th className="px-4 py-2.5 text-start">موجودی</th>
             <th className="px-4 py-2.5 text-start">وضعیت</th>
             <th className="px-4 py-2.5 text-start">تغییر موجودی</th>
@@ -125,7 +123,6 @@ function CatsTab() {
                 </td>
                 <td className="px-4 py-3 font-extrabold text-ink">{c.name}</td>
                 <td className="num px-4 py-3 text-xs text-inksoft">{money(c.hourlyRate)}</td>
-                <td className="num px-4 py-3 text-xs text-inksoft">{money(c.deposit)}</td>
                 <td className="num px-4 py-3">
                   <Badge tone="neutral">
                     {faNum(counts.available)} آزاد از {faNum(counts.total)}
@@ -178,10 +175,6 @@ function CatsTab() {
             <div>
               <label className="lbl">نرخ ساعتی *</label>
               <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })} />
-            </div>
-            <div>
-              <label className="lbl">ودیعه</label>
-              <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} />
             </div>
           </div>
           <Btn className="w-full" onClick={add}>افزودن دسته</Btn>

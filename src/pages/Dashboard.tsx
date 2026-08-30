@@ -295,7 +295,7 @@ function TodayMoney() {
   const rent = pays
     .filter((p) => p.kind === "RENT" || p.kind === "CORRECTION" || p.kind === "DEPOSIT_APPLY")
     .reduce((s, p) => s + p.amount, 0);
-  const deposits = pays.filter((p) => p.kind === "DEPOSIT").reduce((s, p) => s + p.amount, 0);
+  const count = pays.filter((p) => p.kind === "RENT").length;
 
   return (
     <div className="p-4">
@@ -305,8 +305,8 @@ function TodayMoney() {
           <p className="num mt-1 font-display text-3xl text-ink">{money(rent)}</p>
         </div>
         <div className="text-end">
-          <p className="text-[11px] font-bold text-inkmute">ودیعه‌های دریافتی</p>
-          <p className="num mt-1 text-sm font-extrabold text-inksoft">{money(deposits)}</p>
+          <p className="text-[11px] font-bold text-inkmute">اسناد دریافت امروز</p>
+          <p className="num mt-1 text-sm font-extrabold text-inksoft">{faNum(count)} سند</p>
         </div>
       </div>
       <ul className="mt-3 max-h-32 space-y-1 overflow-y-auto">

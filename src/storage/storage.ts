@@ -76,11 +76,11 @@ function seedDB(): DB {
   const yesterday = now - 26 * H;
 
   const catDefs: Array<[string, string, number, number, number]> = [
-    ["A", "ساده", 50_000, 200_000, 10],
-    ["B", "دنده‌ای", 70_000, 300_000, 5],
-    ["C", "بچه‌گانه", 40_000, 150_000, 8],
-    ["D", "سه‌چرخه", 35_000, 100_000, 3],
-    ["E", "دو نفره", 90_000, 400_000, 2],
+    ["A", "ساده", 50_000, 0, 10],
+    ["B", "دنده‌ای", 70_000, 0, 5],
+    ["C", "بچه‌گانه", 40_000, 0, 8],
+    ["D", "سه‌چرخه", 35_000, 0, 3],
+    ["E", "دو نفره", 90_000, 0, 2],
   ];
 
   const categories: Category[] = catDefs.map(([code, name, rate, dep], i) => ({
@@ -133,7 +133,7 @@ function seedDB(): DB {
       subtotal: 100_000,
       discount: 0,
       lateFee: 0,
-      depositTotal: 200_000,
+      depositTotal: 0,
       discountRate: 0,
       discountAuto: false,
       total: 100_000,
@@ -159,7 +159,7 @@ function seedDB(): DB {
       subtotal: 220_000,
       discount: 0,
       lateFee: 0,
-      depositTotal: 450_000,
+      depositTotal: 0,
       discountRate: 0,
       discountAuto: false,
       total: 220_000,
@@ -184,7 +184,7 @@ function seedDB(): DB {
       subtotal: 200_000,
       discount: 0,
       lateFee: 0,
-      depositTotal: 400_000,
+      depositTotal: 0,
       discountRate: 0,
       discountAuto: false,
       total: 200_000,
@@ -198,11 +198,7 @@ function seedDB(): DB {
   ];
 
   const payments: Payment[] = [
-    { id: "pay-1", rentalId: "ren-1001", kind: "DEPOSIT", amount: 200_000, accountId: "acc-cash", note: "ودیعه نقدی", operatorId: "usr-seller", createdAt: yesterday },
-    { id: "pay-2", rentalId: "ren-1001", kind: "RENT", amount: 100_000, accountId: "acc-pos", note: "", operatorId: "usr-seller", createdAt: yesterday + 2 * H + 4 * M },
-    { id: "pay-3", rentalId: "ren-1001", kind: "DEPOSIT_REFUND", amount: 200_000, accountId: "acc-cash", note: "بازگشت ودیعه هنگام تسویه", operatorId: "usr-seller", createdAt: yesterday + 2 * H + 5 * M },
-    { id: "pay-4", rentalId: "ren-1002", kind: "DEPOSIT", amount: 450_000, accountId: "acc-cash", note: "", operatorId: "usr-seller", createdAt: now - 3 * H },
-    { id: "pay-5", rentalId: "ren-1003", kind: "DEPOSIT", amount: 400_000, accountId: "acc-pos", note: "", operatorId: "usr-seller", createdAt: now - 40 * M },
+    { id: "pay-2", rentalId: "ren-1001", kind: "RENT", amount: 100_000, accountId: "acc-pos", note: "تسویه کامل", operatorId: "usr-seller", createdAt: yesterday + 2 * H + 4 * M },
   ];
 
   const markRented = (serial: string, rentalId: string) => {
@@ -276,7 +272,7 @@ function makeDefaultSettings(): Settings {
     releaseDelayMinutes: 10,
     lateMultiplier: 1.5,
     prepMinutes: 3,
-    rewardThresholdHours: 5,
+    rewardThresholdHours: 4,
     rewardDiscountPercent: 30,
     durations: DEFAULT_DURATIONS.map((d) => ({ ...d })),
     accounts: [
@@ -313,6 +309,8 @@ function normalizeDB(p: DB): DB {
         : defaults.accounts,
   };
   settings.prepMinutes = Math.min(5, Math.max(0, settings.prepMinutes ?? 3));
+  /* مهاجرت: حد نصاب پاداش از ۵ ساعت به ۴ ساعت تغییر کرد (مقدار سفارشی مدیر حفظ می‌شود) */
+  if (settings.rewardThresholdHours === 5) settings.rewardThresholdHours = 4;
   return { ...p, customers, rentals, settings };
 }
 

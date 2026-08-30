@@ -9,7 +9,7 @@ import { Badge, Btn, Empty, Modal, useToast } from "../ui/kit";
 
 import { IconCash, IconEdit, IconPlus, IconSearch, IconWallet } from "../ui/icons";
 
-type Tab = "all" | "rent" | "deposit" | "corr";
+type Tab = "all" | "rent" | "corr";
 
 const kindTone: Record<PaymentKind, "ok" | "brand" | "warn" | "danger" | "neutral"> = {
   RENT: "ok",
@@ -39,7 +39,6 @@ export default function Payments() {
         (p.kind === "RENT" || p.kind === "CORRECTION" || p.kind === "DEPOSIT_APPLY")
     )
     .reduce((s, p) => s + p.amount, 0);
-  const heldTotal = activeLike.reduce((s, r) => s + Math.max(0, paymentService.depositHeldFor(db, r.id)), 0);
   const outstanding = activeLike.reduce((s, r) => s + Math.max(0, paymentService.remainingFor(db, r)), 0);
 
   const list = useMemo(() => {
@@ -48,7 +47,6 @@ export default function Payments() {
       .sort((a, b) => b.createdAt - a.createdAt)
       .filter((p) => {
         if (tab === "rent" && !(p.kind === "RENT" || p.kind === "DEPOSIT_APPLY")) return false;
-        if (tab === "deposit" && !(p.kind === "DEPOSIT" || p.kind === "DEPOSIT_REFUND")) return false;
         if (tab === "corr" && p.kind !== "CORRECTION") return false;
         if (!s) return true;
         const r = db.rentals.find((x) => x.id === p.rentalId);
@@ -63,20 +61,13 @@ export default function Payments() {
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-4 sm:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <div className="anim-up card p-4">
           <div className="flex items-center justify-between">
             <p className="text-xs font-bold text-inksoft">دریافتی امروز</p>
             <span className="grid size-9 place-items-center rounded-xl bg-oksoft text-ok"><IconCash size={19} /></span>
           </div>
           <p className="num mt-2 font-display text-2xl text-ink">{money(todayReceived)}</p>
-        </div>
-        <div className="anim-up card p-4" style={{ animationDelay: "50ms" }}>
-          <div className="flex items-center justify-between">
-            <p className="text-xs font-bold text-inksoft">ودیعه نزد فروشگاه</p>
-            <span className="grid size-9 place-items-center rounded-xl bg-brandsoft text-branddeep"><IconWallet size={19} /></span>
-          </div>
-          <p className="num mt-2 font-display text-2xl text-ink">{money(heldTotal)}</p>
         </div>
         <div className="anim-up card p-4" style={{ animationDelay: "100ms" }}>
           <div className="flex items-center justify-between">
@@ -94,7 +85,6 @@ export default function Payments() {
               [
                 ["all", "همه"],
                 ["rent", "اجاره"],
-                ["deposit", "ودیعه"],
                 ["corr", "اصلاحیه"],
               ] as Array<[Tab, string]>
             ).map(([t, label]) => (
@@ -205,7 +195,6 @@ function AddPaymentModal({ open, onClose }: { open: boolean; onClose: () => void
 
   const rental = rentalId ? db.rentals.find((r) => r.id === rentalId) : null;
   const remaining = rental ? Math.max(0, paymentService.remainingFor(db, rental)) : 0;
-  const held = rental ? paymentService.depositHeldFor(db, rental.id) : 0;
 
   function submit() {
     if (!rental) {
@@ -278,7 +267,6 @@ function AddPaymentModal({ open, onClose }: { open: boolean; onClose: () => void
               <label className="lbl">نوع پرداخت</label>
               <select className="inp" value={kind} onChange={(e) => setKind(e.target.value as PaymentKind)}>
                 <option value="RENT">اجاره / مانده</option>
-                {held > 0 && <option value="DEPOSIT_REFUND">بازگشت ودیعه به مشتری</option>}
               </select>
             </div>
             <div>
@@ -300,7 +288,6 @@ function AddPaymentModal({ open, onClose }: { open: boolean; onClose: () => void
           </div>
           <div className="flex flex-wrap gap-2 text-[11px] font-bold">
             <Badge tone="warn">مانده {money(remaining)}</Badge>
-            <Badge tone="brand">ودیعه نزد ما {money(held)}</Badge>
           </div>
           <Btn className="w-full" onClick={submit}>
             <IconCash size={16} />

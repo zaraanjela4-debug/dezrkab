@@ -11,14 +11,12 @@ export interface QuoteLine {
   name: string;
   qty: number;
   hourlyRate: number;
-  deposit: number;
   lineTotal: number;
 }
 
 export interface Quote {
   lines: QuoteLine[];
   subtotal: number;
-  depositTotal: number;
   discount: number;
   total: number;
 }
@@ -47,15 +45,13 @@ export const pricingService = {
         name: cat.name,
         qty: it.qty,
         hourlyRate: cat.hourlyRate,
-        deposit: cat.deposit,
         lineTotal: cat.hourlyRate * it.qty * hours,
       });
     }
     if (lines.length === 0) throw new Error("حداقل یک دسته دوچرخه انتخاب کنید");
     const subtotal = lines.reduce((s, l) => s + l.lineTotal, 0);
-    const depositTotal = lines.reduce((s, l) => s + l.deposit * l.qty, 0);
     const disc = Math.min(Math.max(0, discount), subtotal);
-    return { lines, subtotal, depositTotal, discount: disc, total: subtotal - disc };
+    return { lines, subtotal, discount: disc, total: subtotal - disc };
   },
 
   /** جریمه تأخیر: هر ساعت تأخیر مازاد بر مهلت، با ضریب تنظیمی روی نرخ ساعتی */

@@ -13,7 +13,6 @@ import { faNum, uid } from "../utils/format";
 import { auditService } from "./auditService";
 import { authService, requirePerm } from "./authService";
 import { availabilityService } from "./availabilityService";
-import { paymentService } from "./paymentService";
 import { pricingService } from "./pricingService";
 
 export const STATUS_LABEL: Record<RentalStatus, string> = {
@@ -32,8 +31,6 @@ export interface CreateRentalInput {
   hours: number;
   startAt: number;
   note: string;
-  depositAmount: number;
-  accountId: string;
   /** اعمال خودکار تخفیف پاداش مشتری روی کل فاکتور */
   discountAuto: boolean;
 }
@@ -119,7 +116,7 @@ export const rentalService = {
           qty: l.qty,
           returnedQty: 0,
           hourlyRate: l.hourlyRate,
-          deposit: l.deposit,
+          deposit: 0,
         })),
         startAt: input.startAt || now,
         hours: input.hours,
@@ -130,7 +127,7 @@ export const rentalService = {
         discountRate,
         discountAuto: discountRate > 0,
         lateFee: 0,
-        depositTotal: quote.depositTotal,
+        depositTotal: 0,
         total: quote.subtotal - discount,
         status: "ACTIVE",
         note: input.note.trim(),
@@ -161,16 +158,6 @@ export const rentalService = {
       }
 
       draft.rentals.unshift(rental);
-
-      if (input.depositAmount > 0) {
-        paymentService.applyPayment(draft, {
-          rentalId: rental.id,
-          kind: "DEPOSIT",
-          amount: input.depositAmount,
-          accountId: input.accountId,
-          note: "ودیعه هنگام اجاره",
-        });
-      }
 
       /* ---------- مصرف پاداش فقط بعد از ثبت موفق اجاره ---------- */
       if (discountRate > 0) {

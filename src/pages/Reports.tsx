@@ -135,8 +135,8 @@ export default function Reports() {
               <p className="text-[10px] font-bold text-inkmute">در جریان (الان)</p>
             </div>
             <div>
-              <p className="num font-display text-lg text-ink">{money(rep.depositsIn - rep.depositsOut)}</p>
-              <p className="text-[10px] font-bold text-inkmute">ودیعه خالص دریافتی</p>
+              <p className="num font-display text-lg text-ink">{faNum(rep.settledCount)}</p>
+              <p className="text-[10px] font-bold text-inkmute">تسویه‌شده در بازه</p>
             </div>
           </div>
         </section>

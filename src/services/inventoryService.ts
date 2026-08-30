@@ -22,7 +22,6 @@ export const inventoryService = {
     code: string;
     name: string;
     hourlyRate: number;
-    deposit: number;
   }): Category {
     requirePerm(authService.requireUser(), "inventory.manage");
     const code = input.code.trim().toUpperCase();
@@ -41,7 +40,7 @@ export const inventoryService = {
         code,
         name,
         hourlyRate: input.hourlyRate,
-        deposit: Math.max(0, input.deposit),
+        deposit: 0,
         active: true,
         createdAt: Date.now(),
       };

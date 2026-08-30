@@ -86,7 +86,6 @@ export default function Returns() {
     : 0;
   const paid = rental ? paymentService.paidFor(db, rental.id) : 0;
   const remaining = previewTotal - paid;
-  const held = rental ? paymentService.depositHeldFor(db, rental.id) : 0;
 
   function doReturn() {
     if (!rental) return;
@@ -139,27 +138,6 @@ export default function Returns() {
       setPayStr("");
     } catch (e) {
       toast.push("err", e instanceof Error ? e.message : "دریافت ناموفق بود");
-    }
-  }
-
-  function settleDeposit() {
-    if (!rental) return;
-    try {
-      returnService.settleWithDeposit(rental.id);
-      toast.push("ok", "ودیعه به مانده اجاره منظور شد");
-    } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "تسویه ناموفق بود");
-    }
-  }
-
-  function refundHeld() {
-    if (!rental || held <= 0) return;
-    const cash = db.settings.accounts.find((a) => a.kind === "CASH") ?? db.settings.accounts[0];
-    try {
-      returnService.refundDeposit(rental.id, held, cash?.id ?? accountId);
-      toast.push("ok", `${money(held)} ودیعه به مشتری برگشت داده شد`);
-    } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "بازگشت ودیعه ناموفق بود");
     }
   }
 
@@ -413,7 +391,6 @@ export default function Returns() {
                   <div className="my-1 border-t border-dashed border-linedeep" />
                   <KV k="مبلغ نهایی" v={money(rental.lateFee > 0 || !hasOutstanding ? rental.total : previewTotal)} strong />
                   <KV k="پرداخت‌شده" v={money(paid)} />
-                  <KV k="ودیعه نزد فروشگاه" v={money(held)} />
                 </div>
                 <div className="flex flex-col justify-between rounded-xl bg-brandsoft/70 p-4">
                   <div>
@@ -428,19 +405,9 @@ export default function Returns() {
                         <IconCheck size={13} />
                         تسویه کامل شد
                       </Badge>
-                      {held > 0 && (
-                        <Btn variant="ok" size="sm" className="w-full" onClick={refundHeld}>
-                          بازگشت ودیعه به مشتری ({money(held)})
-                        </Btn>
-                      )}
                     </div>
                   ) : !hasOutstanding && remaining > 0 ? (
                     <div className="mt-3 space-y-2">
-                      {held > 0 && (
-                        <Btn variant="dark" size="sm" className="w-full" onClick={settleDeposit}>
-                          تسویه با ودیعه ({money(Math.min(held, remaining))})
-                        </Btn>
-                      )}
                       <Btn size="sm" className="w-full" onClick={receivePayment}>
                         دریافت مانده
                       </Btn>

@@ -85,9 +85,7 @@ export default function Bikes() {
                 {!cat.active && <Badge tone="neutral">غیرفعال</Badge>}
               </div>
               <p className="mt-2 text-sm font-extrabold text-ink">{cat.name}</p>
-              <p className="num text-[11px] text-inkmute">
-                {money(cat.hourlyRate)}/ساعت — ودیعه {money(cat.deposit)}
-              </p>
+              <p className="num text-[11px] text-inkmute">{money(cat.hourlyRate)}/ساعت</p>
               <div className="num mt-2 grid grid-cols-4 gap-1 text-center text-[10px] font-bold">
                 <span className="rounded-lg bg-black/[0.04] py-1.5">
                   <span className="block font-display text-base text-ink">{faNum(total)}</span>
@@ -271,7 +269,7 @@ function StatusColumn({
 
 function AddCategoryModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const toast = useToast();
-  const [form, setForm] = useState({ code: "", name: "", hourlyRate: "", deposit: "" });
+  const [form, setForm] = useState({ code: "", name: "", hourlyRate: "" });
 
   function submit() {
     try {
@@ -279,11 +277,10 @@ function AddCategoryModal({ open, onClose }: { open: boolean; onClose: () => voi
         code: form.code,
         name: form.name,
         hourlyRate: parseInt(form.hourlyRate, 10) || 0,
-        deposit: parseInt(form.deposit, 10) || 0,
       });
       toast.push("ok", `دسته «${form.name}» اضافه شد — حالا موجودی‌اش را افزایش دهید`);
       onClose();
-      setForm({ code: "", name: "", hourlyRate: "", deposit: "" });
+      setForm({ code: "", name: "", hourlyRate: "" });
     } catch (e) {
       toast.push("err", e instanceof Error ? e.message : "افزودن دسته ناموفق بود");
     }
@@ -305,10 +302,6 @@ function AddCategoryModal({ open, onClose }: { open: boolean; onClose: () => voi
             <label className="lbl">نرخ ساعتی (تومان) *</label>
             <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })} />
           </div>
-          <div>
-            <label className="lbl">ودیعه هر دستگاه</label>
-            <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} />
-          </div>
         </div>
         <p className="text-[11px] leading-5 text-inkmute">
           کد، شناسه دسته است (نه دوچرخه فیزیکی). شماره سریال دستگاه‌ها خودکار از همین کد ساخته می‌شود — مثل F-01
@@ -324,12 +317,12 @@ function AddCategoryModal({ open, onClose }: { open: boolean; onClose: () => voi
 
 function EditCategoryModal({ cat, onClose }: { cat: Category | null; onClose: () => void }) {
   const toast = useToast();
-  const [form, setForm] = useState({ name: "", hourlyRate: "", deposit: "" });
+  const [form, setForm] = useState({ name: "", hourlyRate: "" });
   const [key, setKey] = useState("");
 
   if (cat && key !== cat.id) {
     setKey(cat.id);
-    setForm({ name: cat.name, hourlyRate: String(cat.hourlyRate), deposit: String(cat.deposit) });
+    setForm({ name: cat.name, hourlyRate: String(cat.hourlyRate) });
   }
 
   function submit() {
@@ -338,7 +331,6 @@ function EditCategoryModal({ cat, onClose }: { cat: Category | null; onClose: ()
       inventoryService.updateCategory(cat.id, {
         name: form.name,
         hourlyRate: parseInt(form.hourlyRate, 10) || 0,
-        deposit: parseInt(form.deposit, 10) || 0,
       });
       toast.push("ok", "دسته به‌روزرسانی شد");
       onClose();
@@ -365,15 +357,9 @@ function EditCategoryModal({ cat, onClose }: { cat: Category | null; onClose: ()
           <label className="lbl">نام دسته</label>
           <input className="inp" value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} />
         </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="lbl">نرخ ساعتی</label>
-            <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })} />
-          </div>
-          <div>
-            <label className="lbl">ودیعه هر دستگاه</label>
-            <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.deposit} onChange={(e) => setForm({ ...form, deposit: e.target.value })} />
-          </div>
+        <div>
+          <label className="lbl">نرخ ساعتی</label>
+          <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={form.hourlyRate} onChange={(e) => setForm({ ...form, hourlyRate: e.target.value })} />
         </div>
         <div className="flex gap-2">
           <Btn className="flex-1" onClick={submit}>ذخیره تغییرات</Btn>

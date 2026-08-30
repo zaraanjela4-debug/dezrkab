@@ -75,10 +75,14 @@ export const returnService = {
 
       if (full) {
         rental.actualEndAt = now;
-        /* پاداش مشتری: ساعت‌های اجاره تکمیل‌شده به شمارنده اضافه می‌شود */
+        /*
+          پاداش مشتری: ساعت‌های تکمیل‌شده = مجموع (تعداد × مدت) برای همه دسته‌ها
+          فقط هنگام تکمیل واقعی اجاره محاسبه می‌شود — نه هنگام ایجاد، نه هنگام لغو
+        */
         const cust = draft.customers.find((c) => c.id === rental.customerId);
         if (cust) {
-          cust.completedHours = (cust.completedHours ?? 0) + rental.hours;
+          const earned = rental.items.reduce((s, it) => s + it.qty * rental.hours, 0);
+          cust.completedHours = (cust.completedHours ?? 0) + earned;
         }
         lateFee = pricingService.lateFeeFor(draft.settings, rental.items, rental.plannedEndAt, now);
         rental.lateFee = lateFee;
@@ -122,66 +126,4 @@ export const returnService = {
     });
   },
 
-  /** منظورکردن ودیعه به مانده + بازگشت باقی آن — تسویه یک‌ضرب */
-  settleWithDeposit(rentalId: string): Rental {
-    const me = authService.requireUser();
-    requirePerm(me, "return.process");
-    return mutate((draft) => {
-      const rental = draft.rentals.find((r) => r.id === rentalId);
-      if (!rental) throw new Error("اجاره پیدا نشد");
-      if (rental.status !== "COMPLETED" && rental.status !== "PARTIAL" && rental.status !== "ACTIVE") {
-        throw new Error("این اجاره قابل تسویه با ودیعه نیست");
-      }
-      const held = paymentService.depositHeldFor(draft, rentalId);
-      if (held <= 0) throw new Error("ودیعه‌ای نزد فروشگاه نیست");
-      const remaining = paymentService.remainingFor(draft, rental);
-      if (remaining <= 0) throw new Error("مانده‌ای برای تسویه وجود ندارد");
-
-      const applied = Math.min(held, remaining);
-      const cashAccount = draft.settings.accounts.find((a) => a.id === "acc-cash") ?? draft.settings.accounts[0];
-      paymentService.applyPayment(draft, {
-        rentalId,
-        kind: "DEPOSIT_APPLY",
-        amount: applied,
-        accountId: cashAccount.id,
-        note: "منظورکردن ودیعه به مانده اجاره",
-      });
-      const rest = held - applied;
-      if (rest > 0) {
-        paymentService.applyPayment(draft, {
-          rentalId,
-          kind: "DEPOSIT_REFUND",
-          amount: rest,
-          accountId: cashAccount.id,
-          note: "بازگشت باقی ودیعه به مشتری",
-        });
-      }
-      if (rental.status === "COMPLETED") {
-        const newRemaining = paymentService.remainingFor(draft, rental);
-        if (newRemaining <= 0) rental.status = "SETTLED";
-      }
-      authService.withActor(draft, (d) =>
-        auditService.log(d, "تسویه با ودیعه", "rental", rentalId, `اجاره #${faNum(rental.number)} — ${money(applied)} از ودیعه منظور شد`)
-      );
-      return rental;
-    });
-  },
-
-  refundDeposit(rentalId: string, amount: number, accountId: string): void {
-    const me = authService.requireUser();
-    requirePerm(me, "return.process");
-    mutate((draft) => {
-      paymentService.applyPayment(draft, {
-        rentalId,
-        kind: "DEPOSIT_REFUND",
-        amount,
-        accountId,
-        note: "بازگشت ودیعه به مشتری",
-      });
-      const rental = draft.rentals.find((r) => r.id === rentalId);
-      authService.withActor(draft, (d) =>
-        auditService.log(d, "بازگشت ودیعه", "payment", rentalId, `اجاره #${faNum(rental?.number ?? 0)} — ${money(amount)}`)
-      );
-    });
-  },
 };

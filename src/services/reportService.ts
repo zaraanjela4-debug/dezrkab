@@ -7,8 +7,6 @@ export interface RangeReport {
   end: number;
   revenue: number;
   rentCollected: number;
-  depositsIn: number;
-  depositsOut: number;
   rentalCount: number;
   completedCount: number;
   settledCount: number;
@@ -34,10 +32,6 @@ export const reportService = {
     const pays = db.payments.filter((p) => inRange(p.createdAt));
     const rentCollected = pays
       .filter((p) => p.kind === "RENT" || p.kind === "CORRECTION" || p.kind === "DEPOSIT_APPLY")
-      .reduce((s, p) => s + p.amount, 0);
-    const depositsIn = pays.filter((p) => p.kind === "DEPOSIT").reduce((s, p) => s + p.amount, 0);
-    const depositsOut = pays
-      .filter((p) => p.kind === "DEPOSIT_REFUND")
       .reduce((s, p) => s + p.amount, 0);
 
     const created = db.rentals.filter((r) => inRange(r.createdAt));
@@ -98,8 +92,6 @@ export const reportService = {
       end,
       revenue: rentCollected,
       rentCollected,
-      depositsIn,
-      depositsOut,
       rentalCount: created.length,
       completedCount: completed.filter((r) => r.status !== "CANCELLED").length,
       settledCount: completed.filter((r) => r.status === "SETTLED").length,

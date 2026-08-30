@@ -35,16 +35,6 @@ export const paymentService = {
       .reduce((s, p) => s + p.amount, 0);
   },
 
-  depositHeldFor(db: DB, rentalId: string): number {
-    return db.payments
-      .filter((p) => p.rentalId === rentalId)
-      .reduce((s, p) => {
-        if (p.kind === "DEPOSIT") return s + p.amount;
-        if (p.kind === "DEPOSIT_REFUND" || p.kind === "DEPOSIT_APPLY") return s - p.amount;
-        return s;
-      }, 0);
-  },
-
   remainingFor(db: DB, rental: Rental): number {
     return rental.total - this.paidFor(db, rental.id);
   },
@@ -71,16 +61,6 @@ export const paymentService = {
       if (amount > remaining) {
         throw new Error(`مبلغ دریافتی از مانده (${money(remaining)}) بیشتر است`);
       }
-    }
-    if (input.kind === "DEPOSIT_APPLY") {
-      const held = this.depositHeldFor(draft, rental.id);
-      if (amount > held) throw new Error("بیش از ودیعه نزد فروشگاه نمی‌توان منظور کرد");
-      const remaining = rental.total - this.paidFor(draft, rental.id);
-      if (amount > remaining) throw new Error("مبلغ منظورشده از مانده اجاره بیشتر است");
-    }
-    if (input.kind === "DEPOSIT_REFUND") {
-      const held = this.depositHeldFor(draft, rental.id);
-      if (amount > held) throw new Error("بیش از ودیعه موجود نمی‌توان برگشت داد");
     }
 
     const payment: Payment = {

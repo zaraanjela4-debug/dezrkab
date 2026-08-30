@@ -98,7 +98,7 @@ export default function Login() {
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            {["موجودی زنده", "اجاره حضوری", "تسویه و ودیعه", "گزارش روزانه"].map((t) => (
+            {["موجودی زنده", "اجاره حضوری", "تسویه سریع", "گزارش روزانه"].map((t) => (
               <span
                 key={t}
                 className="rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-white/70"
