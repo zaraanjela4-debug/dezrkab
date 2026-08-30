@@ -4,14 +4,15 @@
  * تمرکز کیبورد بین مراحل به‌صورت خودکار جابه‌جا می‌شود؛ گذارها کوتاه و نرم‌اند.
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import type { Customer, Rental } from "../domain/models";
+import type { Customer, DB, Rental } from "../domain/models";
 import { useAuth, useNow, useRoute } from "../state/app";
 import { useDB } from "../storage/storage";
 import { availabilityService } from "../services/availabilityService";
 import { customerService } from "../services/customerService";
+import { paymentService } from "../services/paymentService";
 import { pricingService } from "../services/pricingService";
 import { rentalService } from "../services/rentalService";
-import { durationLabel, faNum, fmtDateTime, fmtTime, money } from "../utils/format";
+import { accountKindLabel, durationLabel, faNum, fmtDateTime, fmtTime, money } from "../utils/format";
 import { Btn, Modal, useToast } from "../ui/kit";
 import {
   IconBike,
@@ -46,6 +47,12 @@ export default function NewRental() {
   const [confirmed, setConfirmed] = useState<{ rental: Rental; startAt: number } | null>(null);
   const [printed, setPrinted] = useState(false);
   const [shakeKey, setShakeKey] = useState("");
+  /* پیش‌پرداخت قبل از تحویل — هیچ/بخشی/کل (ودیعه نیست) */
+  const [payMode, setPayMode] = useState<"none" | "part" | "full">("full");
+  const [payStr, setPayStr] = useState("");
+  const [payAccountId, setPayAccountId] = useState<string>(
+    () => db.settings.accounts.find((a) => a.kind === "POS" && a.active)?.id ?? db.settings.accounts.find((a) => a.active)?.id ?? ""
+  );
 
   const phoneRef = useRef<HTMLInputElement>(null);
   const firstRef = useRef<HTMLInputElement>(null);
@@ -53,6 +60,7 @@ export default function NewRental() {
   const durationBoxRef = useRef<HTMLDivElement>(null);
   const bikesBoxRef = useRef<HTMLDivElement>(null);
   const confirmBtnRef = useRef<HTMLButtonElement>(null);
+  const payAmountRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     const code = route.params.get("cat");
@@ -196,6 +204,23 @@ export default function NewRental() {
     });
   };
 
+  /* مبلغ پیش‌پرداخت بر اساس حالت انتخابی */
+  const prepayAmount = useMemo(() => {
+    if (!quote) return 0;
+    if (payMode === "none") return 0;
+    if (payMode === "full") return quote.final;
+    const v = parseInt(payStr, 10);
+    return Number.isFinite(v) ? Math.max(0, Math.min(v, quote.final)) : 0;
+  }, [quote, payMode, payStr]);
+  const prepayRemaining = quote ? quote.final - prepayAmount : 0;
+  const payAccount = db.settings.accounts.find((a) => a.id === payAccountId) ?? null;
+
+  const choosePayMode = (m: "none" | "part" | "full") => {
+    setPayMode(m);
+    if (m === "part" && quote) setPayStr(String(quote.final));
+    if (m === "part") window.setTimeout(() => payAmountRef.current?.focus(), 60);
+  };
+
   const confirmRental = () => {
     if (submitting || !hours || totalUnits === 0 || !customerReady) return;
     setSubmitting(true);
@@ -211,6 +236,8 @@ export default function NewRental() {
         startAt: startMs,
         note: "",
         discountAuto: true,
+        prepayAmount,
+        accountId: payAccountId,
       });
       setConfirmed({ rental, startAt: startMs });
       setPrinted(false);
@@ -563,6 +590,67 @@ export default function NewRental() {
                   تخفیف {faNum(pct)}٪ روی کل فاکتور — شمارنده پاداش بعد از ثبت صفر می‌شود
                 </div>
               )}
+
+              {/* پیش‌پرداخت قبل از تحویل */}
+              {quote && (
+                <div className="mt-2.5 rounded-xl border border-line bg-black/[0.02] p-3">
+                  <p className="lbl !mb-2">پرداخت قبل از تحویل</p>
+                  <div className="flex rounded-lg border border-linedeep p-0.5">
+                    {(
+                      [
+                        ["none", "هیچ"],
+                        ["part", "بخشی"],
+                        ["full", "کل مبلغ"],
+                      ] as Array<["none" | "part" | "full", string]>
+                    ).map(([m, label]) => (
+                      <button
+                        key={m}
+                        onClick={() => choosePayMode(m)}
+                        className={`flex-1 cursor-pointer rounded-md px-2 py-1.5 text-xs font-bold transition-colors ${
+                          payMode === m ? "bg-coal text-white" : "text-inksoft hover:bg-black/5"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                  {payMode !== "none" && (
+                    <div className="mt-2 grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="lbl">مبلغ (تومان)</label>
+                        <input
+                          ref={payAmountRef}
+                          className="inp num"
+                          dir="ltr"
+                          style={{ textAlign: "left" }}
+                          type="number"
+                          value={payMode === "full" ? String(quote.final) : payStr}
+                          disabled={payMode === "full"}
+                          onChange={(e) => setPayStr(e.target.value)}
+                        />
+                      </div>
+                      <div>
+                        <label className="lbl">روش پرداخت</label>
+                        <select className="inp" value={payAccountId} onChange={(e) => setPayAccountId(e.target.value)}>
+                          {db.settings.accounts.filter((a) => a.active).map((a) => (
+                            <option key={a.id} value={a.id}>
+                              {accountKindLabel(a.kind)} — {a.name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+                  )}
+                  <div className="mt-2 space-y-0.5">
+                    <Row k="مبلغ کل" v={money(quote.final)} />
+                    <Row k="پرداخت شده" v={<span className={prepayAmount > 0 ? "text-ok" : "text-inkmute"}>{money(prepayAmount)}</span>} />
+                    <Row k="مانده" v={<span className={prepayRemaining > 0 ? "text-danger" : "text-ok"}>{money(prepayRemaining)}</span>} />
+                    {prepayAmount > 0 && payAccount && (
+                      <Row k="روش پرداخت" v={`${accountKindLabel(payAccount.kind)} — ${payAccount.name}`} />
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
             <div>
               <div className="rounded-xl bg-coal p-3.5 text-white">
@@ -836,7 +924,7 @@ function Receipt({ rental, startAt, operatorName }: { rental: Rental; startAt: n
       <div className="my-3 border-t-2 border-dashed border-line" />
       <div className="space-y-1 text-[12px] text-inksoft">
         <ReceiptRow k="وضعیت" v="فعال" />
-        <ReceiptRow k="پرداخت" v="هنگام برگشت و تسویه" />
+        <ReceiptPayment db={db} rental={rental} />
         <ReceiptRow k="اپراتور" v={operatorName} />
       </div>
       <div className="mt-4 flex h-9 items-stretch justify-center gap-[2px]">
@@ -849,6 +937,32 @@ function Receipt({ rental, startAt, operatorName }: { rental: Rental; startAt: n
         این فاکتور را هنگام برگشت دوچرخه همراه داشته باشید
       </p>
     </div>
+  );
+}
+
+function ReceiptPayment({ db, rental }: { db: DB; rental: Rental }) {
+  const paid = paymentService.paidFor(db, rental.id);
+  const remaining = rental.total - paid;
+  const lastPay = [...db.payments]
+    .filter((p) => p.rentalId === rental.id && p.kind === "RENT")
+    .sort((a, b) => b.createdAt - a.createdAt)[0];
+  const acc = lastPay ? db.settings.accounts.find((a) => a.id === lastPay.accountId) : null;
+
+  if (paid <= 0) {
+    return <ReceiptRow k="پرداخت" v="هنگام برگشت و تسویه" />;
+  }
+  return (
+    <>
+      <ReceiptRow
+        k="پرداخت شده"
+        v={`${money(paid)}${acc ? ` — ${accountKindLabel(acc.kind)} · ${acc.name}` : ""}`}
+      />
+      {remaining > 0 ? (
+        <ReceiptRow k="مانده" v={<span className="font-extrabold text-danger">{money(remaining)}</span>} />
+      ) : (
+        <ReceiptRow k="مانده" v={<span className="font-extrabold text-ok">تسویه کامل</span>} />
+      )}
+    </>
   );
 }
 

@@ -6,7 +6,7 @@ import { pricingService } from "../services/pricingService";
 import { rentalService, STATUS_LABEL } from "../services/rentalService";
 import { returnService } from "../services/returnService";
 import { useDB } from "../storage/storage";
-import { countdown, faNum, fmtDateTime, fmtTime, money } from "../utils/format";
+import { accountKindLabel, countdown, faNum, fmtDateTime, fmtTime, money } from "../utils/format";
 import { Badge, Btn, Empty, KV, Modal, Stepper, useToast } from "../ui/kit";
 import {
   IconAlert,
@@ -31,8 +31,12 @@ export default function Returns() {
   );
   const [returns, setReturns] = useState<Record<string, number>>({});
   const [payStr, setPayStr] = useState("");
+  const [payTouched, setPayTouched] = useState(false);
   const [accountId, setAccountId] = useState(
-    () => db.settings.accounts.find((a) => a.active)?.id ?? ""
+    () =>
+      db.settings.accounts.find((a) => a.kind === "POS" && a.active)?.id ??
+      db.settings.accounts.find((a) => a.active)?.id ??
+      ""
   );
   const [cancelOpen, setCancelOpen] = useState(false);
   const [cancelReason, setCancelReason] = useState("");
@@ -70,7 +74,7 @@ export default function Returns() {
       for (const i of rental.items) m[i.categoryId] = i.qty - i.returnedQty;
     }
     setReturns(m);
-    setPayStr("");
+    setPayTouched(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedId]);
 
@@ -86,6 +90,14 @@ export default function Returns() {
     : 0;
   const paid = rental ? paymentService.paidFor(db, rental.id) : 0;
   const remaining = previewTotal - paid;
+
+  // مبلغ دریافت به‌صورت پیش‌فرض = مانده فعلی؛ تا وقتی فروشنده دستی تغییرش نداده
+  useEffect(() => {
+    if (rental && !payTouched) {
+      setPayStr(String(Math.max(0, Math.round(remaining))));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rental?.id, remaining, payTouched]);
 
   function doReturn() {
     if (!rental) return;
@@ -346,15 +358,20 @@ export default function Returns() {
                         type="number"
                         min={0}
                         value={payStr}
-                        onChange={(e) => setPayStr(e.target.value)}
+                        onChange={(e) => {
+                          setPayStr(e.target.value);
+                          setPayTouched(true);
+                        }}
                         placeholder="0 — اختیاری"
                       />
                     </div>
                     <div>
-                      <label className="lbl">حساب دریافت</label>
+                      <label className="lbl">روش پرداخت</label>
                       <select className="inp" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                         {db.settings.accounts.filter((a) => a.active).map((a) => (
-                          <option key={a.id} value={a.id}>{a.name}</option>
+                          <option key={a.id} value={a.id}>
+                            {accountKindLabel(a.kind)} — {a.name}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -384,10 +401,48 @@ export default function Returns() {
                 <div className="space-y-0.5">
                   <KV k="جمع اجاره" v={money(rental.subtotal)} />
                   {rental.discount > 0 && <KV k="تخفیف" v={<span className="text-danger">− {money(rental.discount)}</span>} />}
-                  {rental.lateFee > 0 && <KV k="جریمه تأخیر" v={<span className="text-danger">{money(rental.lateFee)}</span>} />}
-                  {preview && returningAll && preview.lateFee > 0 && rental.lateFee === 0 && (
-                    <KV k="جریمه (پیش‌نمایش)" v={<span className="text-danger">{money(preview.lateFee)}</span>} />
-                  )}
+
+                  {/* ریز دیرکرد — شفاف برای مشتری */}
+                  {(() => {
+                    const b =
+                      preview && returningAll && preview.lateMinutes > 0
+                        ? {
+                            actual: now,
+                            total: preview.lateMinutes,
+                            grace: preview.graceMinutes,
+                            chargeable: preview.chargeableMinutes,
+                            fee: preview.lateFee,
+                          }
+                        : rental.lateFee > 0 && rental.actualEndAt
+                          ? (() => {
+                              const bd = pricingService.lateBreakdown(
+                                db.settings,
+                                rental.items,
+                                rental.plannedEndAt,
+                                rental.actualEndAt
+                              );
+                              return {
+                                actual: rental.actualEndAt as number,
+                                total: bd.totalLateMinutes,
+                                grace: bd.graceMinutes,
+                                chargeable: bd.chargeableMinutes,
+                                fee: rental.lateFee,
+                              };
+                            })()
+                          : null;
+                    if (!b) return null;
+                    return (
+                      <div className="my-1.5 rounded-lg bg-warnsoft/60 px-2.5 py-2">
+                        <KV k="زمان بازگشت مقرر" v={fmtTime(rental.plannedEndAt)} />
+                        <KV k="زمان بازگشت" v={fmtTime(b.actual)} />
+                        <KV k="دیرکرد" v={`${faNum(b.total)} دقیقه`} />
+                        <KV k="بخشوده" v={`${faNum(Math.min(b.grace, b.total))} دقیقه`} />
+                        <KV k="دیرکرد قابل محاسبه" v={`${faNum(b.chargeable)} دقیقه`} />
+                        <KV k="هزینه دیرکرد" v={<span className="text-danger">{money(b.fee)}</span>} />
+                      </div>
+                    );
+                  })()}
+
                   <div className="my-1 border-t border-dashed border-linedeep" />
                   <KV k="مبلغ نهایی" v={money(rental.lateFee > 0 || !hasOutstanding ? rental.total : previewTotal)} strong />
                   <KV k="پرداخت‌شده" v={money(paid)} />

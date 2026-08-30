@@ -1,5 +1,6 @@
 import {
   createContext,
+  forwardRef,
   useCallback,
   useContext,
   useEffect,
@@ -24,16 +25,13 @@ const btnStyles: Record<BtnVariant, string> = {
   outline: "bg-white text-ink border border-linedeep hover:border-brand hover:text-brand",
 };
 
-export function Btn({
-  variant = "primary",
-  size = "md",
-  className = "",
-  children,
-  ...rest
-}: ButtonHTMLAttributes<HTMLButtonElement> & {
-  variant?: BtnVariant;
-  size?: "sm" | "md" | "lg";
-}) {
+export const Btn = forwardRef<
+  HTMLButtonElement,
+  ButtonHTMLAttributes<HTMLButtonElement> & {
+    variant?: BtnVariant;
+    size?: "sm" | "md" | "lg";
+  }
+>(function Btn({ variant = "primary", size = "md", className = "", children, ...rest }, ref) {
   const sz =
     size === "sm"
       ? "text-xs px-3 py-1.5 rounded-lg gap-1"
@@ -42,13 +40,14 @@ export function Btn({
         : "text-sm px-4 py-2 rounded-lg gap-1.5";
   return (
     <button
+      ref={ref}
       className={`inline-flex items-center justify-center font-semibold transition-all duration-150 active:scale-[0.97] disabled:opacity-40 disabled:pointer-events-none cursor-pointer ${btnStyles[variant]} ${sz} ${className}`}
       {...rest}
     >
       {children}
     </button>
   );
-}
+});
 
 /* --------------------------------- نشان --------------------------------- */
 

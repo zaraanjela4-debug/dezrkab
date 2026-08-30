@@ -13,6 +13,7 @@ import { faNum, uid } from "../utils/format";
 import { auditService } from "./auditService";
 import { authService, requirePerm } from "./authService";
 import { availabilityService } from "./availabilityService";
+import { paymentService } from "./paymentService";
 import { pricingService } from "./pricingService";
 
 export const STATUS_LABEL: Record<RentalStatus, string> = {
@@ -33,6 +34,9 @@ export interface CreateRentalInput {
   note: string;
   /** اعمال خودکار تخفیف پاداش مشتری روی کل فاکتور */
   discountAuto: boolean;
+  /** پیش‌پرداخت قبل از تحویل (صفر یعنی هیچ پرداختی نشده) — ودیعه نیست */
+  prepayAmount: number;
+  accountId: string;
 }
 
 export const rentalService = {
@@ -159,6 +163,17 @@ export const rentalService = {
 
       draft.rentals.unshift(rental);
 
+      /* ---------- پیش‌پرداخت قبل از تحویل (هم‌تراکنش با اجاره) ---------- */
+      if (input.prepayAmount > 0) {
+        paymentService.applyPayment(draft, {
+          rentalId: rental.id,
+          kind: "RENT",
+          amount: input.prepayAmount,
+          accountId: input.accountId,
+          note: "پرداخت قبل از تحویل",
+        });
+      }
+
       /* ---------- مصرف پاداش فقط بعد از ثبت موفق اجاره ---------- */
       if (discountRate > 0) {
         customer.completedHours = 0;
@@ -184,7 +199,9 @@ export const rentalService = {
           rental.id,
           `اجاره #${faNum(rental.number)} — ${rental.items
             .map((i) => `${faNum(i.qty)} × ${i.name}`)
-            .join("، ")} برای ${customer.name}`
+            .join("، ")} برای ${customer.name}${
+            input.prepayAmount > 0 ? ` — پیش‌پرداخت ${faNum(input.prepayAmount)} تومان` : " — بدون پیش‌پرداخت"
+          }`
         )
       );
       return rental;

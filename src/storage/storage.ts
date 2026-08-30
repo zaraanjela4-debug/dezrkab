@@ -268,16 +268,16 @@ function makeDefaultSettings(): Settings {
   return {
     storeName: "دوچرخه‌سرای پدال",
     currency: "تومان",
-    graceMinutes: 15,
+    graceMinutes: 5,
     releaseDelayMinutes: 10,
-    lateMultiplier: 1.5,
+    lateMultiplier: 2,
     prepMinutes: 3,
     rewardThresholdHours: 4,
     rewardDiscountPercent: 30,
     durations: DEFAULT_DURATIONS.map((d) => ({ ...d })),
     accounts: [
-      { id: "acc-pos", name: "دستگاه کارت‌خوان", kind: "POS", active: true },
-      { id: "acc-cash", name: "صندوق نقدی", kind: "CASH", active: true },
+      { id: "acc-pos", name: "مهر ایران", kind: "POS", active: true },
+      { id: "acc-cash", name: "نقدی", kind: "CASH", active: true },
       { id: "acc-card", name: "کارت به کارت", kind: "TRANSFER", active: true },
     ],
   };
@@ -311,6 +311,14 @@ function normalizeDB(p: DB): DB {
   settings.prepMinutes = Math.min(5, Math.max(0, settings.prepMinutes ?? 3));
   /* مهاجرت: حد نصاب پاداش از ۵ ساعت به ۴ ساعت تغییر کرد (مقدار سفارشی مدیر حفظ می‌شود) */
   if (settings.rewardThresholdHours === 5) settings.rewardThresholdHours = 4;
+  /* مهاجرت: مهلت بخشودگی ۵ دقیقه و ضریب جریمه ۲ (فقط مقادیر پیش‌فرض قدیمی جایگزین می‌شوند) */
+  if (settings.graceMinutes === 15) settings.graceMinutes = 5;
+  if (settings.lateMultiplier === 1.5) settings.lateMultiplier = 2;
+  /* مهاجرت نام حساب‌های پیش‌فرض */
+  for (const acc of settings.accounts) {
+    if (acc.name === "دستگاه کارت‌خوان") acc.name = "مهر ایران";
+    if (acc.name === "صندوق نقدی") acc.name = "نقدی";
+  }
   return { ...p, customers, rentals, settings };
 }
 

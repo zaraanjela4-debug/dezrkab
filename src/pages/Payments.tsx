@@ -178,7 +178,12 @@ function AddPaymentModal({ open, onClose }: { open: boolean; onClose: () => void
   const [rentalId, setRentalId] = useState<string | null>(null);
   const [kind, setKind] = useState<PaymentKind>("RENT");
   const [amount, setAmount] = useState("");
-  const [accountId, setAccountId] = useState(() => db.settings.accounts.find((a) => a.active)?.id ?? "");
+  const [accountId, setAccountId] = useState(
+    () =>
+      db.settings.accounts.find((a) => a.kind === "POS" && a.active)?.id ??
+      db.settings.accounts.find((a) => a.active)?.id ??
+      ""
+  );
   const [note, setNote] = useState("");
 
   const candidates = useMemo(() => {
@@ -274,10 +279,12 @@ function AddPaymentModal({ open, onClose }: { open: boolean; onClose: () => void
               <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={amount} onChange={(e) => setAmount(e.target.value)} />
             </div>
             <div>
-              <label className="lbl">حساب</label>
+              <label className="lbl">روش پرداخت</label>
               <select className="inp" value={accountId} onChange={(e) => setAccountId(e.target.value)}>
                 {db.settings.accounts.filter((a) => a.active).map((a) => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
+                  <option key={a.id} value={a.id}>
+                    {accountKindLabel(a.kind)} — {a.name}
+                  </option>
                 ))}
               </select>
             </div>

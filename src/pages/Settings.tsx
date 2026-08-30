@@ -219,9 +219,9 @@ function RulesTab() {
         <h3 className="font-display text-base text-ink">قوانین اجاره و تأخیر</h3>
         <div className="mt-3 space-y-3">
           <div>
-            <label className="lbl">مهلت مجاز بعد از سررسید (دقیقه)</label>
+            <label className="lbl">مهلت بخشودگی بعد از سررسید (دقیقه)</label>
             <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" value={grace} onChange={(e) => setGrace(e.target.value)} />
-            <p className="mt-1 text-[11px] text-inkmute">تا این مدت بعد از سررسید، جریمه‌ای محاسبه نمی‌شود</p>
+            <p className="mt-1 text-[11px] text-inkmute">این تعداد دقیقه بعد از سررسید رایگان است و جریمه‌ای ندارد (پیش‌فرض ۵)</p>
           </div>
           <div>
             <label className="lbl">زمان گردش بعد از برگشت زودهنگام (دقیقه)</label>
@@ -233,7 +233,9 @@ function RulesTab() {
           <div>
             <label className="lbl">ضریب جریمه تأخیر</label>
             <input className="inp num" dir="ltr" style={{ textAlign: "left" }} type="number" step="0.1" value={mult} onChange={(e) => setMult(e.target.value)} />
-            <p className="mt-1 text-[11px] text-inkmute">جریمه هر ساعت تأخیر = نرخ ساعتی × این ضریب (گردش به ساعت کامل)</p>
+            <p className="mt-1 text-[11px] text-inkmute">
+              جریمه = دقیقه قابل‌محاسبه × نرخ دقیقه‌ای × این ضریب × تعداد دوچرخه‌ها (پیش‌فرض ۲)
+            </p>
           </div>
           <Btn onClick={saveRules}>
             <IconCheck size={15} />

@@ -95,6 +95,23 @@ export function durationLabel(hours: number): string {
   return `${faNum(hours)} ساعته`;
 }
 
+/** نام فارسی روش پرداخت بر اساس نوع حساب */
+export function accountKindLabel(kind: string): string {
+  if (kind === "POS") return "کارت‌خوان";
+  if (kind === "CASH") return "نقدی";
+  if (kind === "TRANSFER") return "کارت به کارت";
+  return kind;
+}
+
+/** قالب «X دقیقه باقی مانده / X دقیقه دیرکرد» با اعداد فارسی */
+export function minutesWords(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60);
+  const m = totalMinutes % 60;
+  if (h <= 0) return `${faNum(m)} دقیقه`;
+  if (m === 0) return `${faNum(h)} ساعت`;
+  return `${faNum(h)} ساعت و ${faNum(m)} دقیقه`;
+}
+
 export function isSameDay(a: number, b: number): boolean {
   const x = new Date(a);
   const y = new Date(b);

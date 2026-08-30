@@ -21,9 +21,22 @@ export interface Quote {
   total: number;
 }
 
+export interface LateBreakdown {
+  /** کل دیرکرد واقعی از سررسید (دقیقه) */
+  totalLateMinutes: number;
+  /** دقیقه‌های بخشوده (مهلت رایگان) */
+  graceMinutes: number;
+  /** دیرکرد قابل محاسبه = کل − بخشوده */
+  chargeableMinutes: number;
+  lateFee: number;
+}
+
 export interface ReturnPreview {
   early: boolean;
+  /** کل دیرکرد واقعی (بدون کسر مهلت) */
   lateMinutes: number;
+  graceMinutes: number;
+  chargeableMinutes: number;
   lateFee: number;
 }
 
@@ -54,30 +67,51 @@ export const pricingService = {
     return { lines, subtotal, discount: disc, total: subtotal - disc };
   },
 
-  /** جریمه تأخیر: هر ساعت تأخیر مازاد بر مهلت، با ضریب تنظیمی روی نرخ ساعتی */
+  /**
+   * ریز محاسبه دیرکرد — شفاف برای مشتری:
+   * دیرکرد واقعی = فاصله از سررسید؛ دقیقه‌های مهلت بخشوده می‌شوند؛
+   * جریمه = دقیقه قابل‌محاسبه × نرخ دقیقه‌ای × ضریب × تعداد دوچرخه‌ها
+   */
+  lateBreakdown(
+    settings: Settings,
+    items: RentalItem[],
+    plannedEndAt: number,
+    actualEndAt: number
+  ): LateBreakdown {
+    const graceMinutes = Math.max(0, settings.graceMinutes);
+    if (actualEndAt <= plannedEndAt) {
+      return { totalLateMinutes: 0, graceMinutes, chargeableMinutes: 0, lateFee: 0 };
+    }
+    const totalLateMinutes = Math.ceil((actualEndAt - plannedEndAt) / 60_000);
+    const chargeableMinutes = Math.max(0, totalLateMinutes - graceMinutes);
+    if (chargeableMinutes === 0) {
+      return { totalLateMinutes, graceMinutes, chargeableMinutes: 0, lateFee: 0 };
+    }
+    // نرخ دقیقه‌ای = مجموع(نرخ ساعتی × تعداد) ÷ ۶۰ — پس تعداد دوچرخه‌ها داخل فرمول است
+    const perMinute = items.reduce((s, i) => s + i.hourlyRate * i.qty, 0) / 60;
+    const lateFee = Math.round(chargeableMinutes * perMinute * settings.lateMultiplier);
+    return { totalLateMinutes, graceMinutes, chargeableMinutes, lateFee };
+  },
+
   lateFeeFor(
     settings: Settings,
     items: RentalItem[],
     plannedEndAt: number,
     actualEndAt: number
   ): number {
-    const graceMs = settings.graceMinutes * 60_000;
-    const delayMs = actualEndAt - plannedEndAt - graceMs;
-    if (delayMs <= 0) return 0;
-    const lateHours = Math.ceil(delayMs / 3_600_000);
-    const hourlyBase = items.reduce((s, i) => s + i.hourlyRate * i.qty, 0);
-    return Math.round(lateHours * hourlyBase * settings.lateMultiplier);
+    return this.lateBreakdown(settings, items, plannedEndAt, actualEndAt).lateFee;
   },
 
   /** پیش‌نمایش لحظه‌ای وضعیت برگشت همین حالا */
   previewReturn(db: DB, rental: Rental, now: number = Date.now()): ReturnPreview {
-    const graceMs = db.settings.graceMinutes * 60_000;
-    if (now <= rental.plannedEndAt + graceMs) {
-      return { early: now < rental.plannedEndAt, lateMinutes: 0, lateFee: 0 };
-    }
-    const lateMinutes = Math.ceil((now - rental.plannedEndAt - graceMs) / 60_000);
-    const lateFee = this.lateFeeFor(db.settings, rental.items, rental.plannedEndAt, now);
-    return { early: false, lateMinutes, lateFee };
+    const b = this.lateBreakdown(db.settings, rental.items, rental.plannedEndAt, now);
+    return {
+      early: now < rental.plannedEndAt,
+      lateMinutes: b.totalLateMinutes,
+      graceMinutes: b.graceMinutes,
+      chargeableMinutes: b.chargeableMinutes,
+      lateFee: b.lateFee,
+    };
   },
 
   /** زمان آزادسازی دوچرخه بعد از برگشت — قانون گردش تنظیمات */

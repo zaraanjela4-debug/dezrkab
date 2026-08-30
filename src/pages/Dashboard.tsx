@@ -1,16 +1,23 @@
+import type { DB, Rental } from "../domain/models";
 import { navigate, useAuth, useNow } from "../state/app";
 import { availabilityService } from "../services/availabilityService";
-import { STATUS_LABEL } from "../services/rentalService";
 import { useDB } from "../storage/storage";
-import { countdown, faNum, fmtTime, isSameDay, money } from "../utils/format";
-import { Badge, Btn, Empty } from "../ui/kit";
+import {
+  accountKindLabel,
+  faNum,
+  fmtTime,
+  isSameDay,
+  minutesWords,
+  money,
+} from "../utils/format";
+import { STATUS_LABEL } from "../services/rentalService";
+import { Badge, Empty } from "../ui/kit";
 import {
   IconArrowLeft,
   IconBike,
   IconCash,
   IconClock,
   IconReturn,
-  IconUsers,
 } from "../ui/icons";
 
 function greeting(hour: number): string {
@@ -27,235 +34,93 @@ export default function Dashboard() {
   const now = useNow(15_000);
 
   const availability = availabilityService.snapshot(db, now);
-  const rentedUnits = db.bikes.filter((b) => b.status === "RENTED").length;
-  const maintUnits = db.bikes.filter((b) => b.status === "MAINTENANCE").length;
-  const outUnits = db.bikes.filter((b) => b.status === "OUT_OF_SERVICE").length;
-
-  const activeRentals = db.rentals.filter(
-    (r) => r.status === "ACTIVE" || r.status === "PARTIAL"
-  );
   const todayRentals = db.rentals.filter((r) => isSameDay(r.createdAt, now));
-  const nextDue = activeRentals
-    .slice()
-    .sort((a, b) => a.plannedEndAt - b.plannedEndAt)[0];
-
   const hour = new Date(now).getHours();
 
   return (
     <div className="space-y-4">
-      {/* ردیف اصلی: CTA + موجودی لحظه‌ای */}
-      <div className="grid gap-4 xl:grid-cols-12">
+      {/* ردیف ۱: CTA + دوچرخه‌های موجود */}
+      <div className="grid gap-3 xl:grid-cols-12">
         <button
           onClick={() => navigate("rental")}
-          className="anim-up group relative xl:col-span-3 overflow-hidden rounded-2xl bg-brand p-5 text-start text-white shadow-[0_10px_30px_rgba(255,138,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-branddeep cursor-pointer"
+          className="anim-up group relative xl:col-span-3 overflow-hidden rounded-2xl bg-brand p-4 text-start text-white shadow-[0_10px_30px_rgba(255,138,0,0.35)] transition-all duration-200 hover:-translate-y-0.5 hover:bg-branddeep cursor-pointer"
         >
           <div
             className="pointer-events-none absolute -left-10 -top-10 size-40 rounded-full opacity-25 transition-transform duration-300 group-hover:scale-125"
             style={{ background: "radial-gradient(circle, #fff 0%, transparent 60%)" }}
           />
-          <span className="grid size-14 place-items-center rounded-2xl bg-white/15 backdrop-blur-sm">
-            <IconBike size={34} />
+          <span className="grid size-12 place-items-center rounded-2xl bg-white/15 backdrop-blur-sm">
+            <IconBike size={30} />
           </span>
-          <h2 className="mt-4 font-display text-3xl leading-9">اجاره دوچرخه</h2>
-          <p className="mt-1 text-sm text-white/85">شروع اجاره جدید</p>
-          <span className="mt-4 inline-flex items-center gap-1.5 text-xs font-bold text-white/90">
+          <h2 className="mt-3 font-display text-2xl leading-8">اجاره دوچرخه</h2>
+          <p className="mt-0.5 text-xs text-white/85">شروع اجاره جدید</p>
+          <span className="mt-3 inline-flex items-center gap-1.5 text-[11px] font-bold text-white/90">
             ورود به پیشخوان اجاره
-            <IconArrowLeft size={15} className="transition-transform duration-200 group-hover:-translate-x-1" />
+            <IconArrowLeft size={14} className="transition-transform duration-200 group-hover:-translate-x-1" />
           </span>
         </button>
 
         <div className="xl:col-span-9">
-          <div className="mb-2 flex items-center justify-between">
-            <h2 className="text-sm font-extrabold text-inksoft">
-              دوچرخه‌های آماده — همین لحظه
-            </h2>
-            <span className="flex items-center gap-1.5 text-[11px] font-bold text-ok">
-              <span className="dot-live inline-block size-2 rounded-full bg-ok" />
-              به‌روزرسانی زنده
-            </span>
-          </div>
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-5">
             {availability.map((a, i) => (
               <button
                 key={a.category.id}
                 onClick={() => navigate(`rental?cat=${a.category.code}`)}
                 disabled={a.available === 0}
-                style={{ animationDelay: `${i * 55}ms` }}
-                className={`anim-up card group relative cursor-pointer p-3.5 text-start transition-all duration-200 hover:-translate-y-0.5 hover:border-brand hover:shadow-[0_8px_24px_rgba(30,30,25,0.1)] disabled:cursor-not-allowed disabled:opacity-70 ${
+                style={{ animationDelay: `${i * 45}ms` }}
+                className={`anim-up card group cursor-pointer p-3 text-start transition-all duration-200 hover:-translate-y-0.5 hover:border-brand hover:shadow-[0_8px_24px_rgba(30,30,25,0.1)] disabled:cursor-not-allowed disabled:opacity-75 ${
                   a.available === 0 ? "border-danger/30" : ""
                 }`}
               >
-                <div className="flex items-center justify-between">
-                  <span className="grid size-9 place-items-center rounded-lg bg-coal font-display text-lg text-white">
-                    {a.category.code}
-                  </span>
+                <p className="text-[10px] font-extrabold tracking-wide text-inkmute">
+                  دوچرخه‌های موجود
+                </p>
+                <div className="mt-1 flex items-center justify-between">
                   {a.available > 0 ? (
-                    <span className="flex items-center gap-1 text-[11px] font-bold text-ok">
-                      <span className="dot-live size-1.5 rounded-full bg-ok" />
+                    <span className="flex items-center gap-1.5 text-[11px] font-bold text-ok">
+                      <span className="dot-live inline-block size-2 rounded-full bg-ok" />
                       موجود
                     </span>
                   ) : (
                     <span className="text-[11px] font-bold text-danger">ناموجود</span>
                   )}
-                </div>
-                <p className="num mt-2 font-display text-4xl leading-none text-ink">
-                  {faNum(a.available)}
-                </p>
-                <p className="mt-1.5 text-xs font-bold text-inksoft">
-                  {a.category.name}
-                  <span className="ms-1 font-normal text-inkmute">
-                    — {faNum(a.available)} موجود
+                  <span
+                    className={`num font-display text-4xl leading-none ${
+                      a.available === 0 ? "text-danger" : "text-ink"
+                    }`}
+                  >
+                    {faNum(a.available)}
                   </span>
-                </p>
+                </div>
+                <div className="mt-2 flex items-center gap-1.5">
+                  <span className="grid size-6 place-items-center rounded-md bg-coal font-display text-xs text-white">
+                    {a.category.code}
+                  </span>
+                  <span className="text-xs font-bold text-inksoft">{a.category.name}</span>
+                </div>
               </button>
             ))}
           </div>
         </div>
       </div>
 
-      {/* ردیف دوم: آمار فشرده + در جریان‌ها */}
-      <div className="grid gap-4 xl:grid-cols-12">
-        <div className="space-y-4 xl:col-span-4">
-          <div className="grid grid-cols-2 gap-4">
-            <div className="anim-up card p-4">
-              <div className="flex items-center justify-between">
-                <span className="grid size-9 place-items-center rounded-xl bg-brandsoft text-branddeep">
-                  <IconBike size={20} />
-                </span>
-                <span className="text-[11px] font-bold text-inkmute">دستگاه</span>
-              </div>
-              <p className="num mt-2 font-display text-3xl text-ink">{faNum(rentedUnits)}</p>
-              <p className="text-xs font-bold text-inksoft">در حال رکاب</p>
-            </div>
-            <div className="anim-up card p-4" style={{ animationDelay: "60ms" }}>
-              <div className="flex items-center justify-between">
-                <span className="grid size-9 place-items-center rounded-xl bg-oksoft text-ok">
-                  <IconUsers size={20} />
-                </span>
-                <span className="text-[11px] font-bold text-inkmute">اجاره</span>
-              </div>
-              <p className="num mt-2 font-display text-3xl text-ink">{faNum(todayRentals.length)}</p>
-              <p className="text-xs font-bold text-inksoft">اجاره‌های امروز</p>
-            </div>
-          </div>
+      {/* ردیف ۲: در حال رکاب — تمام عرض */}
+      <ActiveRentalsBoard db={db} />
 
-          {nextDue ? (
-            <button
-              onClick={() => navigate(`returns?id=${nextDue.id}`)}
-              className="anim-up card block w-full cursor-pointer p-4 text-start transition-all hover:border-brand"
-              style={{ animationDelay: "100ms" }}
-            >
-              <div className="flex items-center justify-between">
-                <p className="text-xs font-bold text-inksoft">نزدیک‌ترین سررسید</p>
-                <IconClock size={16} className="text-inkmute" />
-              </div>
-              <div className="mt-1.5 flex items-center justify-between gap-2">
-                <div>
-                  <p className="text-sm font-extrabold text-ink">
-                    #{faNum(nextDue.number)} — {customerName(db, nextDue.customerId)}
-                  </p>
-                  <p className="num mt-0.5 text-[11px] text-inkmute">
-                    سررسید {fmtTime(nextDue.plannedEndAt)}
-                  </p>
-                </div>
-                {(() => {
-                  const cd = countdown(nextDue.plannedEndAt, now);
-                  return (
-                    <Badge tone={cd.overdue ? "danger" : cd.minutes < 30 ? "warn" : "ok"}>
-                      {cd.label}
-                    </Badge>
-                  );
-                })()}
-              </div>
-            </button>
-          ) : (
-            <div className="anim-up card p-4 text-center text-xs font-bold text-inkmute">
-              هیچ اجاره‌ای در جریان نیست — خیال راحت!
-            </div>
-          )}
-
-          <div className="anim-up card p-4" style={{ animationDelay: "140ms" }}>
-            <p className="text-xs font-bold text-inksoft">وضعیت ناوگان</p>
-            <div className="mt-2.5 flex h-2.5 overflow-hidden rounded-full bg-black/5">
-              {rentedUnits > 0 && (
-                <span className="bg-brand" style={{ width: `${(rentedUnits / Math.max(1, db.bikes.length)) * 100}%` }} />
-              )}
-              {maintUnits > 0 && (
-                <span className="bg-warn" style={{ width: `${(maintUnits / Math.max(1, db.bikes.length)) * 100}%` }} />
-              )}
-              {outUnits > 0 && (
-                <span className="bg-inkmute" style={{ width: `${(outUnits / Math.max(1, db.bikes.length)) * 100}%` }} />
-              )}
-            </div>
-            <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1 text-[11px] font-bold text-inksoft">
-              <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-brand" /> در اجاره {faNum(rentedUnits)}</span>
-              <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-warn" /> تعمیر {faNum(maintUnits)}</span>
-              <span className="flex items-center gap-1.5"><i className="size-2 rounded-full bg-inkmute" /> خارج {faNum(outUnits)}</span>
-              <button onClick={() => navigate("bikes")} className="ms-auto cursor-pointer text-branddeep hover:underline">
-                جزئیات دوچرخه‌ها
-              </button>
-            </div>
-          </div>
-        </div>
-
-        <div className="anim-up xl:col-span-8 card overflow-hidden" style={{ animationDelay: "80ms" }}>
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h3 className="font-display text-lg text-ink">اجاره‌های در جریان</h3>
-            <Badge tone="brand">{faNum(activeRentals.length)} مورد</Badge>
-          </div>
-          <div className="max-h-[420px] overflow-y-auto">
-            {activeRentals.length === 0 ? (
-              <Empty icon={<IconReturn size={26} />} text="اجاره فعالی نیست" sub="با «اجاره دوچرخه» اولین رکاب‌سوار امروز را ثبت کنید" />
-            ) : (
-              <ul className="divide-y divide-line">
-                {activeRentals.map((r) => {
-                  const cd = countdown(r.plannedEndAt, now);
-                  return (
-                    <li key={r.id} className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-black/[0.02]">
-                      <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-coal font-display text-sm text-white">
-                        {faNum(r.number)}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-extrabold text-ink">
-                          {customerName(db, r.customerId)}
-                          <span className="ms-2 text-[11px] font-bold text-inkmute">
-                            {r.items.map((i) => `${faNum(i.qty - i.returnedQty)}×${i.name}`).join(" + ")}
-                          </span>
-                        </p>
-                        <p className="num mt-0.5 text-[11px] text-inkmute">
-                          شروع {fmtTime(r.startAt)} — سررسید {fmtTime(r.plannedEndAt)}
-                        </p>
-                      </div>
-                      <Badge tone={cd.overdue ? "danger" : cd.minutes < 30 ? "warn" : "neutral"} className={cd.overdue ? "dot-warn" : ""}>
-                        {cd.label}
-                      </Badge>
-                      <Btn size="sm" variant="dark" onClick={() => navigate(`returns?id=${r.id}`)}>
-                        <IconReturn size={14} />
-                        برگشت
-                      </Btn>
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </div>
-        </div>
-      </div>
-
-      {/* ردیف سوم: امروز */}
+      {/* ردیف ۳: امروز (فشرده) */}
       <div className="grid gap-4 xl:grid-cols-2">
         <div className="anim-up card overflow-hidden">
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h3 className="font-display text-lg text-ink">اجاره‌های امروز</h3>
+          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <h3 className="font-display text-base text-ink">اجاره‌های امروز</h3>
             <Badge tone="neutral">{faNum(todayRentals.length)} اجاره</Badge>
           </div>
           {todayRentals.length === 0 ? (
-            <Empty icon={<IconClock size={26} />} text="هنوز اجاره‌ای ثبت نشده" />
+            <Empty icon={<IconClock size={24} />} text="هنوز اجاره‌ای ثبت نشده" />
           ) : (
-            <ul className="max-h-56 divide-y divide-line overflow-y-auto">
+            <ul className="max-h-52 divide-y divide-line overflow-y-auto">
               {todayRentals.map((r) => (
-                <li key={r.id} className="flex items-center gap-3 px-4 py-2.5">
-                  <span className="num w-14 font-display text-sm text-inksoft">#{faNum(r.number)}</span>
+                <li key={r.id} className="flex items-center gap-3 px-4 py-2">
+                  <span className="num w-12 font-display text-sm text-inksoft">#{faNum(r.number)}</span>
                   <span className="flex-1 truncate text-sm font-bold text-ink">
                     {customerName(db, r.customerId)}
                     <span className="ms-2 text-[11px] font-normal text-inkmute">
@@ -263,7 +128,7 @@ export default function Dashboard() {
                     </span>
                   </span>
                   <span className="num text-xs font-bold text-inksoft">{money(r.total)}</span>
-                  <Badge tone={r.status === "CANCELLED" ? "danger" : r.status === "SETTLED" ? "ok" : r.status === "COMPLETED" ? "ok" : "brand"}>
+                  <Badge tone={r.status === "CANCELLED" ? "danger" : r.status === "SETTLED" || r.status === "COMPLETED" ? "ok" : "brand"}>
                     {STATUS_LABEL[r.status]}
                   </Badge>
                 </li>
@@ -273,29 +138,180 @@ export default function Dashboard() {
         </div>
 
         <div className="anim-up card overflow-hidden" style={{ animationDelay: "60ms" }}>
-          <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <h3 className="font-display text-lg text-ink">دریافتی‌های امروز</h3>
-            <IconCash size={18} className="text-inkmute" />
+          <div className="flex items-center justify-between border-b border-line px-4 py-2.5">
+            <h3 className="font-display text-base text-ink">دریافتی‌های امروز</h3>
+            <IconCash size={17} className="text-inkmute" />
           </div>
-          <TodayMoney />
+          <TodayMoney db={db} now={now} greeting={greeting(hour)} user={user?.name ?? ""} />
         </div>
       </div>
     </div>
   );
 }
 
-function customerName(db: ReturnType<typeof useDB>, id: string): string {
+function customerName(db: DB, id: string): string {
   return db.customers.find((c) => c.id === id)?.name ?? "مشتری حذف‌شده";
 }
 
-function TodayMoney() {
-  const db = useDB();
-  const now = useNow(30_000);
+/* ------------------------- تابلوی در حال رکاب ------------------------- */
+
+function ActiveRentalsBoard({ db }: { db: DB }) {
+  const now = useNow(1000);
+  const grace = db.settings.graceMinutes;
+  const rentals = db.rentals.filter(
+    (r) => r.status === "ACTIVE" || r.status === "PARTIAL"
+  );
+  const rentedUnits = db.bikes.filter((b) => b.status === "RENTED").length;
+  const maintUnits = db.bikes.filter((b) => b.status === "MAINTENANCE").length;
+  const outUnits = db.bikes.filter((b) => b.status === "OUT_OF_SERVICE").length;
+
+  return (
+    <section className="anim-up card overflow-hidden">
+      <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-line px-4 py-2.5">
+        <h2 className="flex items-center gap-2 font-display text-xl text-ink">
+          <IconBike size={20} className="text-branddeep" />
+          در حال رکاب
+        </h2>
+        <Badge tone="brand">{faNum(rentals.length)} اجاره فعال</Badge>
+        <div className="ms-auto flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] font-bold text-inksoft">
+          <span className="num">{faNum(rentedUnits)} دستگاه بیرون</span>
+          <span className="num text-[#b45309]">{faNum(maintUnits)} تعمیر</span>
+          <span className="num text-inkmute">{faNum(outUnits)} خارج</span>
+          <button onClick={() => navigate("bikes")} className="cursor-pointer text-branddeep hover:underline">
+            جزئیات
+          </button>
+        </div>
+      </div>
+
+      {rentals.length === 0 ? (
+        <Empty
+          icon={<IconReturn size={26} />}
+          text="هیچ دوچرخه‌ای بیرون نیست"
+          sub="با «اجاره دوچرخه» اولین رکاب‌سوار را ثبت کنید"
+        />
+      ) : (
+        <div className="grid gap-3 p-3 md:grid-cols-2 2xl:grid-cols-3">
+          {rentals.map((r) => (
+            <RentalCard key={r.id} db={db} rental={r} now={now} grace={grace} />
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function RentalCard({
+  db,
+  rental,
+  now,
+  grace,
+}: {
+  db: DB;
+  rental: Rental;
+  now: number;
+  grace: number;
+}) {
+  const customer = db.customers.find((c) => c.id === rental.customerId);
+  const diff = rental.plannedEndAt - now;
+  const lateMinutes = diff < 0 ? Math.ceil(-diff / 60_000) : 0;
+  const withinGrace = lateMinutes > 0 && lateMinutes <= grace;
+  const overdue = lateMinutes > grace;
+
+  const outstanding = rental.items.filter((i) => i.qty - i.returnedQty > 0);
+
+  return (
+    <div className="flex flex-col gap-2.5 rounded-xl border border-line bg-white p-4 transition-all duration-200 hover:border-brand/60 hover:shadow-[0_6px_20px_rgba(30,30,25,0.08)]">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="truncate font-display text-lg leading-6 text-ink">
+            {customer?.name ?? "مشتری"}
+            {rental.status === "PARTIAL" && (
+              <Badge tone="warn" className="ms-2 align-middle">برگشت نسبی</Badge>
+            )}
+          </p>
+          <p className="num text-[11px] text-inkmute">
+            اجاره #{faNum(rental.number)} · شروع {fmtTime(rental.startAt)}
+          </p>
+        </div>
+        <RemainingPill lateMinutes={lateMinutes} withinGrace={withinGrace} overdue={overdue} plannedEndAt={rental.plannedEndAt} now={now} />
+      </div>
+
+      <div>
+        <p className="text-[10px] font-extrabold tracking-wide text-inkmute">دوچرخه‌های اجاره‌شده</p>
+        <div className="mt-1 flex flex-wrap gap-1.5">
+          {outstanding.map((i) => (
+            <span
+              key={i.categoryId}
+              className="num rounded-lg bg-brandsoft px-2 py-1 text-xs font-extrabold text-branddeep"
+            >
+              {faNum(i.qty - i.returnedQty)} عدد {i.name}
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <div className="num flex items-center gap-1.5 text-xs font-bold text-inksoft">
+        <IconClock size={14} className="text-inkmute" />
+        ساعت بازگشت: {fmtTime(rental.plannedEndAt)}
+        <span className="font-normal text-inkmute">· مهلت بخشودگی {faNum(grace)} دقیقه</span>
+      </div>
+
+      <button
+        onClick={() => navigate(`returns?id=${rental.id}`)}
+        className="mt-auto inline-flex w-full cursor-pointer items-center justify-center gap-2 rounded-xl bg-brand py-3 font-display text-lg text-white shadow-[0_4px_14px_rgba(255,138,0,0.3)] transition-all duration-150 hover:bg-branddeep active:scale-[0.98]"
+      >
+        <IconReturn size={19} />
+        ثبت برگشت
+      </button>
+    </div>
+  );
+}
+
+function RemainingPill({
+  lateMinutes,
+  withinGrace,
+  overdue,
+  plannedEndAt,
+  now,
+}: {
+  lateMinutes: number;
+  withinGrace: boolean;
+  overdue: boolean;
+  plannedEndAt: number;
+  now: number;
+}) {
+  if (lateMinutes === 0) {
+    const remaining = Math.floor((plannedEndAt - now) / 60_000);
+    return (
+      <div className="shrink-0 rounded-xl bg-oksoft px-3 py-2 text-end">
+        <p className="num font-display text-xl leading-6 text-ok">{minutesWords(Math.max(0, remaining))}</p>
+        <p className="text-[10px] font-bold text-ok">باقی مانده</p>
+      </div>
+    );
+  }
+  if (withinGrace) {
+    return (
+      <div className="shrink-0 rounded-xl bg-warnsoft px-3 py-2 text-end">
+        <p className="num font-display text-xl leading-6 text-[#b45309]">{minutesWords(lateMinutes)}</p>
+        <p className="text-[10px] font-bold text-[#b45309]">دیرکرد · بخشوده</p>
+      </div>
+    );
+  }
+  return (
+    <div className={`shrink-0 rounded-xl bg-dangersoft px-3 py-2 text-end ${overdue ? "dot-warn" : ""}`}>
+      <p className="num font-display text-xl leading-6 text-danger">{minutesWords(lateMinutes)}</p>
+      <p className="text-[10px] font-bold text-danger">دیرکرد</p>
+    </div>
+  );
+}
+
+/* --------------------------- دریافتی امروز --------------------------- */
+
+function TodayMoney({ db, now }: { db: DB; now: number; greeting: string; user: string }) {
   const pays = db.payments.filter((p) => isSameDay(p.createdAt, now));
   const rent = pays
     .filter((p) => p.kind === "RENT" || p.kind === "CORRECTION" || p.kind === "DEPOSIT_APPLY")
     .reduce((s, p) => s + p.amount, 0);
-  const count = pays.filter((p) => p.kind === "RENT").length;
 
   return (
     <div className="p-4">
@@ -304,10 +320,6 @@ function TodayMoney() {
           <p className="text-[11px] font-bold text-inkmute">درآمد اجاره امروز</p>
           <p className="num mt-1 font-display text-3xl text-ink">{money(rent)}</p>
         </div>
-        <div className="text-end">
-          <p className="text-[11px] font-bold text-inkmute">اسناد دریافت امروز</p>
-          <p className="num mt-1 text-sm font-extrabold text-inksoft">{faNum(count)} سند</p>
-        </div>
       </div>
       <ul className="mt-3 max-h-32 space-y-1 overflow-y-auto">
         {pays.length === 0 ? (
@@ -315,11 +327,11 @@ function TodayMoney() {
         ) : (
           pays.slice(0, 6).map((p) => {
             const r = db.rentals.find((x) => x.id === p.rentalId);
+            const acc = db.settings.accounts.find((a) => a.id === p.accountId);
             return (
               <li key={p.id} className="flex items-center justify-between rounded-lg bg-black/[0.03] px-3 py-1.5 text-xs">
                 <span className="font-bold text-inksoft">
-                  #{r ? faNum(r.number) : "—"} —{" "}
-                  {p.kind === "DEPOSIT" ? "ودیعه" : p.kind === "DEPOSIT_REFUND" ? "بازگشت ودیعه" : p.kind === "DEPOSIT_APPLY" ? "منظور ودیعه" : p.kind === "CORRECTION" ? "اصلاحیه" : "اجاره"}
+                  #{r ? faNum(r.number) : "—"} — {acc ? accountKindLabel(acc.kind) : "پرداخت"}
                 </span>
                 <span className={`num font-extrabold ${p.amount < 0 ? "text-danger" : "text-ok"}`}>
                   {money(p.amount)}
