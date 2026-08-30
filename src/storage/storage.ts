@@ -25,8 +25,32 @@ import { hashPassword } from "../utils/hash";
 
 export interface StorageAdapter {
   read(key: string): string | null;
-  write(key: string, value: string): void;
+  /** نتیجه صریح موفقیت/شکست — نوشتن هرگز نباید بی‌صدا شکست بخورد */
+  write(key: string, value: string): WriteResult;
   remove(key: string): void;
+}
+
+export type WriteResult = { ok: true } | { ok: false; error: Error };
+
+/**
+ * خطای تایپ‌شده ذخیره‌سازی — وقتی persist ناموفق است mutate پرتاب می‌کند تا:
+ * - وضعیت حافظه commit نشود
+ * - آخرین وضعیت سالمِ ذخیره‌شده دست‌نخورده بماند
+ * - کاربر پیام فارسی واضح ببیند و بتواند دوباره تلاش کند
+ */
+export class StorageWriteError extends Error {
+  readonly isStorageWriteError = true as const;
+  readonly causeDetail: unknown;
+  constructor(cause?: unknown) {
+    super("ذخیره‌سازی ناموفق بود. اطلاعات تغییر نکرد.");
+    this.name = "StorageWriteError";
+    this.causeDetail = cause;
+  }
+}
+
+function reportPersistenceFailure(where: string, cause: unknown): void {
+  // تشخیص فنی فقط در console — هرگز به‌صورت stack trace به فروشنده نشان داده نمی‌شود
+  console.error(`[pedal] persistence failed (${where}) — last-good state preserved.`, cause);
 }
 
 const localAdapter: StorageAdapter = {
@@ -40,8 +64,9 @@ const localAdapter: StorageAdapter = {
   write(key, value) {
     try {
       localStorage.setItem(key, value);
-    } catch {
-      /* حافظه پر — داده در حافظه موقت باقی می‌ماند */
+      return { ok: true };
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e : new Error(String(e)) };
     }
   },
   remove(key) {
@@ -338,7 +363,11 @@ function loadDB(): DB {
     }
   }
   const fresh = seedDB();
-  adapter.write(KEYS.db, JSON.stringify(fresh));
+  const write = adapter.write(KEYS.db, JSON.stringify(fresh));
+  if (!write.ok) {
+    // هنوز داده تجاری‌ای وجود ندارد — فقط ثبت تشخیصی؛ سامانه در حافظه کار می‌کند
+    reportPersistenceFailure("write-initial-seed", write.error);
+  }
   return fresh;
 }
 
@@ -357,36 +386,74 @@ export function subscribe(fn: () => void): () => void {
 }
 
 /**
- * تنها درگاه تغییر داده.
- * چون JS تک‌رشته‌ای است، «اعتبارسنجی + commit» داخل این تابع اتمیک است:
- * دو عملیات همزمان هرگز نمی‌توانند موجودی را منفی کنند — تراکنش نامعتبر
- * قبل از commit رد می‌شود.
+ * تنها درگاه تغییر داده — اتمیک و امن در برابر شکست ذخیره‌سازی.
+ * ترتیب: آماده‌سازی → اعتبارسنجی → serialize → persist → commit حافظه → notify
+ * اگر persist شکست بخورد، state دست‌نخورده می‌ماند و StorageWriteError پرتاب می‌شود؛
+ * هرگز «حافظه=جدید / ذخیره=قدیم» بدون هشدار رخ نمی‌دهد و آخرین وضعیت سالم باقی می‌ماند.
  */
 export function mutate<T>(fn: (draft: DB) => T): T {
   const draft: DB = JSON.parse(JSON.stringify(state)) as DB;
-  const result = fn(draft);
+  const result = fn(draft); // آماده‌سازی + اعتبارسنجی — پرتاب ⇒ state دست‌نخورده
   draft.rev = state.rev + 1;
+
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(draft);
+  } catch (cause) {
+    reportPersistenceFailure("serialize", cause);
+    throw new StorageWriteError(cause);
+  }
+
+  const write = adapter.write(KEYS.db, serialized);
+  if (!write.ok) {
+    reportPersistenceFailure("write", write.error);
+    throw new StorageWriteError(write.error); // commit انجام نشد — state و storage هر دو قدیمی/سالم
+  }
+
   state = draft;
-  adapter.write(KEYS.db, JSON.stringify(state));
   listeners.forEach((l) => l());
   return result;
 }
 
 export function resetToSeed(): void {
-  state = seedDB();
-  adapter.write(KEYS.db, JSON.stringify(state));
+  const fresh = seedDB();
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(fresh);
+  } catch (cause) {
+    reportPersistenceFailure("serialize-seed", cause);
+    throw new StorageWriteError(cause);
+  }
+  const write = adapter.write(KEYS.db, serialized);
+  if (!write.ok) {
+    reportPersistenceFailure("write-seed", write.error);
+    throw new StorageWriteError(write.error);
+  }
+  state = fresh;
   listeners.forEach((l) => l());
 }
 
 /**
  * بازیابی کامل — فقط به‌صورت اتمیک:
  * یا کل وضعیت جایگزین می‌شود یا هیچ‌چیز تغییر نمی‌کند.
+ * ابتدا persist موفق، سپس commit حافظه — بازیابی ناموفق state فعلی را دست نمی‌زند.
  * داده‌های نسخه‌های قدیمی‌تر هم هنگام ورود نرمال‌سازی می‌شوند.
  */
 export function restoreDB(next: DB): void {
   const normalized = normalizeDB({ ...next, rev: state.rev + 1 });
+  let serialized: string;
+  try {
+    serialized = JSON.stringify(normalized);
+  } catch (cause) {
+    reportPersistenceFailure("serialize-restore", cause);
+    throw new StorageWriteError(cause);
+  }
+  const write = adapter.write(KEYS.db, serialized);
+  if (!write.ok) {
+    reportPersistenceFailure("write-restore", write.error);
+    throw new StorageWriteError(write.error); // state فعلی کاملاً دست‌نخورده ماند
+  }
   state = normalized;
-  adapter.write(KEYS.db, JSON.stringify(state));
   listeners.forEach((l) => l());
 }
 
