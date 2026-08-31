@@ -14,11 +14,12 @@ export function uid(): string {
   );
 }
 
-const dFmt = new Intl.DateTimeFormat("fa-IR", {
+/* همه نمایش‌های تاریخ صریحاً با تقویم جلالی — مستقل از تقویم پیش‌فرض موتور */
+const dFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
   day: "numeric",
   month: "long",
 });
-const dFull = new Intl.DateTimeFormat("fa-IR", {
+const dFull = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
   day: "numeric",
   month: "long",
   year: "numeric",
@@ -27,13 +28,13 @@ const tFmt = new Intl.DateTimeFormat("fa-IR", {
   hour: "2-digit",
   minute: "2-digit",
 });
-const dtFmt = new Intl.DateTimeFormat("fa-IR", {
+const dtFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
   day: "numeric",
   month: "numeric",
   hour: "2-digit",
   minute: "2-digit",
 });
-const weekdayFmt = new Intl.DateTimeFormat("fa-IR", { weekday: "long" });
+const weekdayFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian", { weekday: "long" });
 
 export function fmtDate(ts: number): string {
   return dFmt.format(new Date(ts));
@@ -112,7 +113,7 @@ export function startOfDay(ts: number): number {
 
 /* ------------------------- تاریخ جلالی (عددهای لاتین) ------------------------- */
 
-const jalaliDateFmt = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
+const jalaliDateFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-latn", {
   year: "numeric",
   month: "2-digit",
   day: "2-digit",
@@ -122,7 +123,7 @@ const jalaliTimeFmt = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
   minute: "2-digit",
   hour12: false,
 });
-const jalaliMonthFmt = new Intl.DateTimeFormat("fa-IR-u-nu-latn", {
+const jalaliMonthFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-latn", {
   year: "numeric",
   month: "2-digit",
 });
@@ -151,9 +152,132 @@ export function jalaliMonthKey(ts: number): string {
   return `${part(mp, "year")}/${part(mp, "month")}`;
 }
 
-/* ------------------- اعتبارسنجی بازه دلخواه گزارش (L2) ------------------- */
+/* ============================================================================
+   موتور تقویم جلالی — متمرکز برای کل سامانه
+   ----------------------------------------------------------------------------
+   هیچ صفحه‌ای سیستم تاریخ خودش را ندارد؛ همه محاسبات جلالی از اینجا می‌گذرد.
+   مبنای محاسبات: Intl با تقویم persian و «زمان محلی» (ایران) — دقیقه‌دقیق.
+   مرز روز/ماه/سال و سال کبیسه (اسفند ۳۰) توسط همان تقویم Persian موتور
+   حل می‌شود و توابع تبدیل با راستی‌آزمایی دقیقِ ±۳ روزه، هیچ تاریخ
+   ناسازگاری برنمی‌گردانند.
+   ========================================================================= */
+
+export const JALALI_MONTHS = [
+  "فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+  "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند",
+];
+
+/** روزهای هفته — ترتیب از شنبه (آغاز هفته ایرانی) */
+export const JALALI_WEEKDAYS_SHORT = ["ش", "ی", "د", "س", "چ", "پ", "ج"];
 
 const DAY_MS = 86_400_000;
+const FA_DIGITS = "۰۱۲۳۴۵۶۷۸۹";
+const toFaDigits = (s: string) => s.replace(/\d/g, (d) => FA_DIGITS[Number(d)]);
+
+const jalaliNumFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian-nu-latn", {
+  year: "numeric",
+  month: "numeric",
+  day: "numeric",
+});
+const jalaliMonthYearFmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+  month: "long",
+  year: "numeric",
+});
+
+export interface JalaliParts {
+  jy: number;
+  jm: number;
+  jd: number;
+}
+
+/** اجزای سال/ماه/روز جلالی یک زمان — به وقت محلی، با اعداد لاتین برای محاسبه */
+export function jalaliParts(ts: number): JalaliParts {
+  let jy = 0;
+  let jm = 0;
+  let jd = 0;
+  for (const p of jalaliNumFmt.formatToParts(new Date(ts))) {
+    if (p.type === "year") jy = Number(p.value);
+    else if (p.type === "month") jm = Number(p.value);
+    else if (p.type === "day") jd = Number(p.value);
+  }
+  return { jy, jm, jd };
+}
+
+/** شاخص روز خطی — فقط برای محاسبه اختلاف روز بین دو تاریخ جلالی */
+function jalaliDayIndex(p: JalaliParts): number {
+  return p.jy * 372 + (p.jm - 1) * 31 + p.jd;
+}
+
+/** نیمه‌شب محلی (ساعت ۰۰:۰۰ ایران)ِ یک تاریخ جلالی */
+export function jalaliToTime(jy: number, jm: number, jd: number): number {
+  const target = jalaliDayIndex({ jy, jm, jd });
+  /* برآورد اولیه: اول فروردین هر سال ≈ ۲۱ مارسِ (jy + 621) — ساعت ۱۲ برای دوری از لبه منطقه زمانی */
+  let guess = Date.UTC(jy + 621, 2, 21, 12);
+  for (let i = 0; i < 6; i++) {
+    const diff = target - jalaliDayIndex(jalaliParts(guess));
+    if (diff === 0) break;
+    guess += diff * DAY_MS;
+  }
+  /* تور ایمنی نهایی — انطباق دقیق در همسایگی ±۳ روز */
+  for (let k = -3; k <= 3; k++) {
+    const t = guess + k * DAY_MS;
+    if (jalaliDayIndex(jalaliParts(t)) === target) {
+      guess = t;
+      break;
+    }
+  }
+  const d = new Date(guess);
+  return new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+}
+
+/** سال کبیسه جلالی — اسفند ۳۰ روز دارد */
+export function isJalaliLeap(jy: number): boolean {
+  const noonNext = jalaliToTime(jy, 12, 29) + DAY_MS + DAY_MS / 2;
+  return jalaliParts(noonNext).jm === 12;
+}
+
+/** طول ماه جلالی — ۳۱ (شش ماه نخست)، ۳۰ (پنج ماه بعد)، ۲۹/۳۰ (اسفند) */
+export function jalaliMonthLength(jy: number, jm: number): number {
+  if (jm <= 6) return 31;
+  if (jm <= 11) return 30;
+  return isJalaliLeap(jy) ? 30 : 29;
+}
+
+/** نیمه‌شبِ اولِ ماهی که n ماه با ماهِ زمانِ داده‌شده فاصله دارد */
+export function addJalaliMonths(ts: number, n: number): number {
+  const p = jalaliParts(ts);
+  let jy = p.jy;
+  let jm = p.jm + n;
+  while (jm < 1) {
+    jm += 12;
+    jy -= 1;
+  }
+  while (jm > 12) {
+    jm -= 12;
+    jy += 1;
+  }
+  return jalaliToTime(jy, jm, 1);
+}
+
+/** آغاز هفته ایرانی — شنبه، نیمه‌شب محلی */
+export function jalaliWeekStart(ts: number): number {
+  const sinceSaturday = (new Date(ts).getDay() + 1) % 7; // شنبه = ۰
+  return startOfDay(ts - sinceSaturday * DAY_MS);
+}
+
+/** رشته نمایشی ورودی‌های تاریخ — ۱۴۰۴/۰۷/۱۵ (ارقام فارسی، بدون جداکننده هزارگان) */
+export function jalaliInputString(ts: number): string {
+  const p = jalaliParts(ts);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return toFaDigits(`${p.jy}/${pad(p.jm)}/${pad(p.jd)}`);
+}
+
+/** نام ماه و سال — برای سربرگ انتخابگر تاریخ */
+export function jalaliMonthYear(ts: number): string {
+  return jalaliMonthYearFmt.format(new Date(ts));
+}
+
+/* ------------------- اعتبارسنجی بازه دلخواه گزارش (ورودی جلالی) ------------------- */
 
 export interface RangeValidation {
   ok: boolean;
@@ -167,24 +291,13 @@ export interface RangeValidation {
 }
 
 /**
- * تبدیل مقدار input[type=date] به زمان دقیق نیمه‌شب محلی.
- * تاریخ‌های غیرممکن (مثل 2024-02-30 که جاوااسکریپت به ۱ اسفند می‌غلتاند) رد می‌شوند.
+ * بازه دلخواه با مهرهای زمانی جلالی — تاریخ غیرممکن از سمت انتخابگر اصلاً
+ * قابل ساخت نیست؛ بازه نامعتبر هرگز بی‌صدا با «امروز» جایگزین نمی‌شود.
  */
-export function parseDateInput(str: string): number | null {
-  const s = str.trim();
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
-  const t = new Date(`${s}T00:00`).getTime();
-  if (!Number.isFinite(t)) return null;
-  const [y, m, d] = s.split("-").map(Number);
-  const dt = new Date(t);
-  if (dt.getFullYear() !== y || dt.getMonth() + 1 !== m || dt.getDate() !== d) {
-    return null;
-  }
-  return t;
-}
-
-/** بازه دلخواه — هیچ بازه نامعتبری بی‌صدا با «امروز» جایگزین نمی‌شود */
-export function validateCustomRange(fromStr: string, toStr: string): RangeValidation {
+export function validateCustomRange(
+  fromTs: number | null,
+  toTs: number | null
+): RangeValidation {
   const bad = (reason: string, field: "from" | "to" | null): RangeValidation => ({
     ok: false,
     start: 0,
@@ -192,12 +305,8 @@ export function validateCustomRange(fromStr: string, toStr: string): RangeValida
     reason,
     field,
   });
-  if (!fromStr) return bad("تاریخ شروع وارد نشده است.", "from");
-  if (!toStr) return bad("تاریخ پایان وارد نشده است.", "to");
-  const start = parseDateInput(fromStr);
-  if (start === null) return bad("تاریخ شروع نامعتبر است.", "from");
-  const to = parseDateInput(toStr);
-  if (to === null) return bad("تاریخ پایان نامعتبر است.", "to");
-  if (start > to) return bad("تاریخ شروع بعد از تاریخ پایان است.", "from");
-  return { ok: true, start, end: to + DAY_MS, reason: "", field: null };
+  if (fromTs === null) return bad("تاریخ شروع وارد نشده است.", "from");
+  if (toTs === null) return bad("تاریخ پایان وارد نشده است.", "to");
+  if (fromTs > toTs) return bad("تاریخ شروع بعد از تاریخ پایان است.", "from");
+  return { ok: true, start: startOfDay(fromTs), end: startOfDay(toTs) + DAY_MS, reason: "", field: null };
 }

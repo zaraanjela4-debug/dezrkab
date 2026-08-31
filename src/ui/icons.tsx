@@ -158,6 +158,12 @@ export const IconHistory = (p: IconProps) => (
   </svg>
 );
 
+export const IconArrowRight = (p: IconProps) => (
+  <svg {...svgProps(p)}>
+    <path d="M4 12h16M14 6l6 6-6 6" />
+  </svg>
+);
+
 export const IconArrowLeft = (p: IconProps) => (
   <svg {...svgProps(p)}>
     <path d="M19 12H5M11 6l-6 6 6 6" />

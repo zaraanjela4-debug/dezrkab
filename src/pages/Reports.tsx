@@ -11,6 +11,7 @@ import { generateReportPDF } from "../services/pdfService";
 import { useDB } from "../storage/storage";
 import { accountKindLabel, faNum, jalaliDate, money, startOfDay, validateCustomRange, type RangeValidation } from "../utils/format";
 import { Badge, Btn, Modal, useToast } from "../ui/kit";
+import JalaliDateInput from "../ui/JalaliDateInput";
 import { useDownloadCenter } from "../ui/DownloadCenter";
 import {
   IconAlert,
@@ -40,18 +41,15 @@ type DetailTab =
   | "discount"
   | "maintenance";
 
-function toInput(ts: number): string {
-  const d = new Date(ts);
-  const p = (x: number) => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-}
+
 
 export default function Reports() {
   const db = useDB();
   const toast = useToast();
   const [preset, setPreset] = useState<Preset>("today");
-  const [fromStr, setFromStr] = useState(() => toInput(startOfDay(Date.now()) - 6 * 86_400_000));
-  const [toStr, setToStr] = useState(() => toInput(Date.now()));
+  /* بازه دلخواه — مهر زمانی جلالی؛ هیچ رشته میلادی‌ای در کار نیست */
+  const [fromTs, setFromTs] = useState<number | null>(() => startOfDay(Date.now()) - 6 * 86_400_000);
+  const [toTs, setToTs] = useState<number | null>(() => startOfDay(Date.now()));
   const [detail, setDetail] = useState<DetailTab>("daily");
   const [pdfPicker, setPdfPicker] = useState(false);
   const [pdfType, setPdfType] = useState<ReportType>("full");
@@ -60,7 +58,7 @@ export default function Reports() {
 
   /* بازه دلخواه نامعتبر هرگز بی‌صدا با «امروز» جایگزین نمی‌شود — گزارش تولید نمی‌شود */
   const range = useMemo((): RangeValidation => {
-    if (preset === "custom") return validateCustomRange(fromStr, toStr);
+    if (preset === "custom") return validateCustomRange(fromTs, toTs);
     const [s, e] =
       preset === "today"
         ? todayRange()
@@ -72,7 +70,7 @@ export default function Reports() {
               ? thisMonthRange()
               : lastMonthRange();
     return { ok: true, start: s, end: e, reason: "", field: null };
-  }, [preset, fromStr, toStr]);
+  }, [preset, fromTs, toTs]);
 
   const start = range.start;
   const end = range.end;
@@ -154,20 +152,16 @@ export default function Reports() {
         </div>
         {preset === "custom" && (
           <div className="anim-pop flex items-center gap-2">
-            <input
-              type="date"
-              className={`inp num w-36 ${range.field === "from" ? "border-danger ring-2 ring-danger/20" : ""}`}
-              dir="ltr"
-              value={fromStr}
-              onChange={(e) => setFromStr(e.target.value)}
+            <JalaliDateInput
+              value={fromTs}
+              onChange={setFromTs}
+              invalid={range.field === "from"}
             />
             <span className="text-xs text-inkmute">تا</span>
-            <input
-              type="date"
-              className={`inp num w-36 ${range.field === "to" ? "border-danger ring-2 ring-danger/20" : ""}`}
-              dir="ltr"
-              value={toStr}
-              onChange={(e) => setToStr(e.target.value)}
+            <JalaliDateInput
+              value={toTs}
+              onChange={setToTs}
+              invalid={range.field === "to"}
             />
           </div>
         )}
