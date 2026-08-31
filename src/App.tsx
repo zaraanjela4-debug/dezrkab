@@ -5,6 +5,7 @@ import { backupService } from "./services/backupService";
 import { useDB } from "./storage/storage";
 import { faNum, fmtDateFull, fmtTime, fmtWeekday } from "./utils/format";
 import { Badge, Btn, ToastProvider } from "./ui/kit";
+import { DownloadProvider } from "./ui/DownloadCenter";
 import {
   IconBike,
   IconCash,
@@ -250,7 +251,9 @@ export default function App() {
   return (
     <ToastProvider>
       <AuthProvider>
-        <Shell />
+        <DownloadProvider>
+          <Shell />
+        </DownloadProvider>
       </AuthProvider>
     </ToastProvider>
   );

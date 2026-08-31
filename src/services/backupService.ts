@@ -12,7 +12,15 @@ import { getDB, mutate, prefsStore, restoreDB, snapshotStore } from "../storage/
 import { jalaliDate, jalaliStamp } from "../utils/format";
 import { auditService } from "./auditService";
 import { authService } from "./authService";
-import { downloadText } from "./exportService";
+
+/** ساخت Blob پشتیبان با اعتبارسنجی — تحویل فایل بر عهدهٔ مرکز دانلود است */
+function toBackupBlob(backup: BackupFile): Blob {
+  const text = JSON.stringify(backup, null, 2);
+  JSON.parse(text); // بازاعتبارسنجی
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  if (blob.size === 0) throw new Error("ساخت فایل پشتیبان انجام نشد — خروجی خالی است");
+  return blob;
+}
 
 const APP_ID = "پدال";
 const SCHEMA_VERSION = "1.0";
@@ -73,11 +81,14 @@ export const backupService = {
     };
   },
 
-  /** ایجاد پشتیبان + دانلود فایل + ثبت در تاریخچه */
-  createAndDownload(): string {
+  /**
+   * ایجاد پشتیبان کامل + اعتبارسنجی + ثبت در تاریخچه.
+   * تحویل فایل بر عهدهٔ مرکز دانلود است — اینجا هیچ «دانلود شد»ی اعلام نمی‌شود.
+   */
+  prepareBackup(): { blob: Blob; name: string } {
     const backup = this.buildBackup();
+    const blob = toBackupBlob(backup);
     const name = `pedal-backup-${jalaliStamp(Date.now())}.json`;
-    downloadText(name, JSON.stringify(backup, null, 2));
     prefsStore.write("lastBackup", { at: Date.now(), name });
     mutate((draft) =>
       authService.withActor(draft, (d) =>
@@ -92,7 +103,7 @@ export const backupService = {
         )
       )
     );
-    return name;
+    return { blob, name };
   },
 
   /** اعتبارسنجی کامل فایل پشتیبان — در صورت مشکل، خطای فارسی پرتاب می‌شود */
@@ -171,15 +182,16 @@ export const backupService = {
   },
 
   /**
-   * بازیابی — ابتدا پشتیبان اضطراری از وضعیت فعلی دانلود می‌شود،
-   * سپس داده به‌صورت اتمیک جایگزین می‌شود (schema های قدیمی‌تر هم مهاجرت می‌شوند)
+   * بازیابی — فقط وقتی پشتیبان اضطراریِ وضعیت فعلی از قبل «ساخته و به کاربر ارائه» شده باشد.
+   * caller باید emergencyName را از prepareBackup + مرکز دانلود گرفته باشد؛
+   * بدون آن بازیابی اصلاً اجرا نمی‌شود تا هیچ‌کس بدون نسخه نجات، داده را جایگزین نکند.
+   * خود بازیابی اتمیک است: یا کامل انجام می‌شود یا هیچ‌چیز تغییر نمی‌کند.
    */
-  restore(file: BackupFile): string {
+  restore(file: BackupFile, emergencyName: string): void {
+    if (!emergencyName || !emergencyName.trim()) {
+      throw new Error("پیش از بازیابی، پشتیبان اضطراری از وضعیت فعلی ساخته و دریافت کنید");
+    }
     const validated = this.validate(file); // اعتبارسنجی دوباره قبل از هر تغییری
-    const emergency = this.buildBackup();
-    const emergencyName = `current-state-before-restore-${jalaliStamp(Date.now())}.json`;
-    downloadText(emergencyName, JSON.stringify(emergency, null, 2));
-    prefsStore.write("lastBackup", { at: Date.now(), name: emergencyName });
 
     restoreDB(validated.data); // اتمیک — یا کامل یا هیچ
 
@@ -194,7 +206,6 @@ export const backupService = {
         )
       )
     );
-    return emergencyName;
   },
 
   /* ------------------------- پشتیبان خودکار سبک ------------------------- */
@@ -223,14 +234,23 @@ export const backupService = {
     }
   },
 
-  downloadLatest(): string {
+  /** آخرین پشتیبان (اسنپ‌شات خودکار یا یک پشتیبان تازه) — آماده برای مرکز دانلود */
+  prepareLatest(): { blob: Blob; name: string } {
     const snap = this.latestSnapshot();
     if (snap) {
       const name = `pedal-backup-${jalaliStamp(Date.parse(snap.created_at) || Date.now())}.json`;
-      downloadText(name, JSON.stringify(snap, null, 2));
-      return name;
+      return { blob: toBackupBlob(snap), name };
     }
-    return this.createAndDownload();
+    return this.prepareBackup();
+  },
+
+  /** پشتیبان اضطراریِ قبل از بازیابی — بدون ثبت «ایجاد پشتیبان» در تاریخچه */
+  prepareEmergency(): { blob: Blob; name: string } {
+    const backup = this.buildBackup();
+    const blob = toBackupBlob(backup);
+    const name = `current-state-before-restore-${jalaliStamp(Date.now())}.json`;
+    prefsStore.write("lastBackup", { at: Date.now(), name });
+    return { blob, name };
   },
 
   lastBackupInfo(): { at: number; name: string } | null {

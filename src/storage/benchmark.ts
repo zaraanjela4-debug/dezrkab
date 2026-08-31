@@ -406,7 +406,11 @@ async function suite(label: string, customers: number, rentals: number, bikes: n
   time("backup build+stringify", () => JSON.stringify(backupService.buildBackup()), 3);
   console.log(`backup file ≈ ${Math.round(backupStr.length / 1024)} KB`);
   time("backup validate", () => backupService.validate(JSON.parse(backupStr)), 3);
-  time("restore (atomic replace)", () => backupService.restore(JSON.parse(backupStr)), 1);
+  time(
+    "restore (atomic replace)",
+    () => backupService.restore(JSON.parse(backupStr), "benchmark-emergency.json"),
+    1
+  );
 
   /* لغو */
   const active2 = storage.getDB().rentals.find((r) => r.status === "ACTIVE");

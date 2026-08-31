@@ -5,12 +5,13 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { reportService, lastMonthRange, thisMonthRange, thisWeekRange, todayRange, yesterdayRange } from "../services/reportService";
 import type { Analytics } from "../services/reportService";
-import { exportAIJSON, REPORT_TYPE_LABEL } from "../services/exportService";
+import { buildAIJSONBlob, REPORT_TYPE_LABEL } from "../services/exportService";
 import type { ReportType } from "../services/exportService";
+import { generateReportPDF } from "../services/pdfService";
 import { useDB } from "../storage/storage";
 import { accountKindLabel, faNum, jalaliDate, money, startOfDay, validateCustomRange, type RangeValidation } from "../utils/format";
 import { Badge, Btn, Modal, useToast } from "../ui/kit";
-import PrintReport from "../ui/PrintReport";
+import { useDownloadCenter } from "../ui/DownloadCenter";
 import {
   IconAlert,
   IconBike,
@@ -25,7 +26,6 @@ import {
   IconUsers,
   IconWallet,
   IconWrench,
-  IconX,
 } from "../ui/icons";
 
 type Preset = "today" | "yesterday" | "week" | "month" | "lastMonth" | "custom";
@@ -55,7 +55,8 @@ export default function Reports() {
   const [detail, setDetail] = useState<DetailTab>("daily");
   const [pdfPicker, setPdfPicker] = useState(false);
   const [pdfType, setPdfType] = useState<ReportType>("full");
-  const [printJob, setPrintJob] = useState<ReportType | null>(null);
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const dl = useDownloadCenter();
 
   /* بازه دلخواه نامعتبر هرگز بی‌صدا با «امروز» جایگزین نمی‌شود — گزارش تولید نمی‌شود */
   const range = useMemo((): RangeValidation => {
@@ -81,13 +82,48 @@ export default function Reports() {
     [db, range]
   );
 
+  /* ساخت JSON + اعتبارسنجی؛ تحویل با مرکز دانلود — هیچ «دانلود شد»ِ بی‌اساسی اعلام نمی‌شود */
   const doJSON = () => {
     if (!range.ok) {
       toast.push("err", "بازه تاریخ نامعتبر است.");
       return;
     }
-    const name = exportAIJSON(db, range.start, range.end);
-    toast.push("ok", `فایل ${name} دانلود شد — آماده برای تحلیل هوش مصنوعی`);
+    try {
+      const { blob, name } = buildAIJSONBlob(db, range.start, range.end);
+      dl.offer({
+        blob,
+        filename: name,
+        kind: "json",
+        title: "فایل JSON آماده است",
+        note: "خروجی تحلیل برای هوش مصنوعی — با همان موتور گزارش صفحه ساخته و اعتبارسنجی شده است.",
+      });
+    } catch (e) {
+      toast.push("err", e instanceof Error ? e.message : "ساخت فایل انجام نشد.");
+    }
+  };
+
+  /* ساخت PDF واقعی (چندصفحه‌ای A4) از همان موتور گزارش */
+  const doPDF = async () => {
+    if (!range.ok || !a) {
+      toast.push("err", "بازه تاریخ نامعتبر است.");
+      return;
+    }
+    setPdfBusy(true);
+    try {
+      const { blob, name } = await generateReportPDF(db, a, pdfType);
+      setPdfPicker(false);
+      dl.offer({
+        blob,
+        filename: name,
+        kind: "pdf",
+        title: "فایل PDF آماده است",
+        note: `${REPORT_TYPE_LABEL[pdfType]} — بازه ${jalaliDate(range.start)} تا ${jalaliDate(range.end - 1)}. برای دریافت روی دکمه دانلود کلیک کنید.`,
+      });
+    } catch (e) {
+      toast.push("err", e instanceof Error ? e.message : "ساخت فایل PDF انجام نشد.");
+    } finally {
+      setPdfBusy(false);
+    }
   };
 
   return (
@@ -244,39 +280,20 @@ export default function Reports() {
             </button>
           ))}
         </div>
-        <Btn
-          className="mt-4 w-full"
-          onClick={() => {
-            setPdfPicker(false);
-            setPrintJob(pdfType);
-          }}
-        >
-          <IconPrint size={16} />
-          مشاهده و چاپ گزارش
+        <Btn className="mt-4 w-full" onClick={doPDF} disabled={pdfBusy}>
+          {pdfBusy ? (
+            "در حال ساخت PDF…"
+          ) : (
+            <>
+              <IconPrint size={16} />
+              ساخت فایل PDF
+            </>
+          )}
         </Btn>
+        <p className="mt-2 text-center text-[10px] leading-5 text-inkmute">
+          فایل PDF واقعی (A4، چندصفحه‌ای) ساخته و برای دانلود ارائه می‌شود — نیاز به «Save as PDF» نیست
+        </p>
       </Modal>
-
-      {/* پیش‌نمایش و چاپ */}
-      {printJob && (
-        <div className="fixed inset-0 z-[70] flex flex-col bg-coal/80 backdrop-blur-sm">
-          <div className="print-toolbar flex items-center justify-between bg-coal px-4 py-2.5 text-white">
-            <p className="font-display text-base">{REPORT_TYPE_LABEL[printJob]} — {jalaliDate(start)} تا {jalaliDate(end - 1)}</p>
-            <div className="flex gap-2">
-              <Btn size="sm" onClick={() => window.print()}>
-                <IconPrint size={14} />
-                چاپ / ذخیره PDF
-              </Btn>
-              <Btn size="sm" variant="ghost" className="text-white hover:bg-white/10" onClick={() => setPrintJob(null)}>
-                <IconX size={14} />
-                بستن
-              </Btn>
-            </div>
-          </div>
-          <div className="flex-1 overflow-y-auto py-6">
-            <PrintReport type={printJob} a={a} db={db} />
-          </div>
-        </div>
-      )}
         </>
       )}
     </div>

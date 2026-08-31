@@ -5,23 +5,21 @@
  * هر دو از همان reportService می‌خوانند تا اعداد یکسان بمانند.
  */
 import type { DB } from "../domain/models";
-import { jalaliStamp, money } from "../utils/format";
+import { jalaliDate, money } from "../utils/format";
 import { accountKindLabel } from "../utils/format";
 import type { Analytics } from "./reportService";
 import { reportService } from "./reportService";
 
-export function downloadText(filename: string, text: string, mime = "application/json"): void {
-  const blob = new Blob([text], { type: `${mime};charset=utf-8` });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  document.body.appendChild(a);
-  a.click();
-  window.setTimeout(() => {
-    URL.revokeObjectURL(url);
-    a.remove();
-  }, 500);
+/**
+ * ساخت Blob با اعتبارسنجی — تحویل فایل بر عهدهٔ DownloadCenter است.
+ * هیچ ادعای «دانلود شد» از این لایه صادر نمی‌شود.
+ */
+function makeJSONBlob(obj: unknown): Blob {
+  const text = JSON.stringify(obj, null, 2);
+  JSON.parse(text); // بازاعتبارسنجی — JSON تولیدی باید حتماً سالم باشد
+  const blob = new Blob([text], { type: "application/json;charset=utf-8" });
+  if (blob.size === 0) throw new Error("ساخت فایل انجام نشد — خروجی خالی است");
+  return blob;
 }
 
 /** طرح‌واره پایدار برای تحلیل هوش مصنوعی — سریال‌سازی UI state نیست */
@@ -210,11 +208,17 @@ export function buildAIExport(db: DB, start: number, end: number) {
   };
 }
 
-export function exportAIJSON(db: DB, start: number, end: number): string {
+/** خروجی JSON برای هوش مصنوعی — فقط ساخت + اعتبارسنجی؛ تحویل با مرکز دانلود */
+export function buildAIJSONBlob(
+  db: DB,
+  start: number,
+  end: number
+): { blob: Blob; name: string } {
   const obj = buildAIExport(db, start, end);
-  const name = `pedal-ai-report-${jalaliStamp(Date.now())}.json`;
-  downloadText(name, JSON.stringify(obj, null, 2));
-  return name;
+  return {
+    blob: makeJSONBlob(obj),
+    name: `pedal-ai-data-${jalaliDate(Date.now())}.json`,
+  };
 }
 
 export const REPORT_TYPE_LABEL: Record<string, string> = {

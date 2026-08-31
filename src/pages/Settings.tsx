@@ -2,6 +2,7 @@ import { useRef, useState, type ReactNode } from "react";
 import { authService } from "../services/authService";
 import { backupService } from "../services/backupService";
 import type { BackupFile, BackupPreview } from "../services/backupService";
+import { useDownloadCenter } from "../ui/DownloadCenter";
 import { inventoryService } from "../services/inventoryService";
 import { settingsService } from "../services/settingsService";
 import { availabilityService } from "../services/availabilityService";
@@ -626,24 +627,65 @@ function BackupTab() {
   const [, force] = useState(0);
 
   const last = backupService.lastBackupInfo();
+  const dl = useDownloadCenter();
+
+  /* پشتیبان اضطراریِ پیش از بازیابی — باید ساخته و به کاربر ارائه شود */
+  const [emergency, setEmergency] = useState<{ blob: Blob; name: string } | null>(null);
+  const [emergencyErr, setEmergencyErr] = useState("");
+  const [acked, setAcked] = useState(false);
 
   const makeBackup = () => {
     try {
-      const name = backupService.createAndDownload();
-      toast.push("ok", `پشتیبان کامل ساخته و دانلود شد — ${name}`);
+      const { blob, name } = backupService.prepareBackup();
+      dl.offer({
+        blob,
+        filename: name,
+        kind: "backup",
+        title: "پشتیبان آماده است",
+        note: "پشتیبان کامل از همه داده‌های فروشگاه ساخته و اعتبارسنجی شد. برای دریافت فایل روی دکمه دانلود کلیک کنید.",
+      });
       force((x) => x + 1);
     } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "ایجاد پشتیبان ناموفق بود");
+      toast.push("err", e instanceof Error ? e.message : "ساخت پشتیبان انجام نشد.");
     }
   };
 
   const downloadLatest = () => {
     try {
-      const name = backupService.downloadLatest();
-      toast.push("ok", `فایل ${name} دانلود شد`);
+      const { blob, name } = backupService.prepareLatest();
+      dl.offer({
+        blob,
+        filename: name,
+        kind: "backup",
+        title: "پشتیبان آماده است",
+        note: "آخرین پشتیبان آماده دریافت است.",
+      });
     } catch (e) {
-      toast.push("err", e instanceof Error ? e.message : "دانلود ناموفق بود");
+      toast.push("err", e instanceof Error ? e.message : "ساخت فایل انجام نشد.");
     }
+  };
+
+  /* بازکردن پیش‌نمایش = ساخت فوری پشتیبان اضطراری */
+  const buildEmergency = () => {
+    setEmergencyErr("");
+    setEmergency(null);
+    setAcked(false);
+    try {
+      setEmergency(backupService.prepareEmergency());
+    } catch (e) {
+      setEmergencyErr(e instanceof Error ? e.message : "ساخت پشتیبان اضطراری انجام نشد.");
+    }
+  };
+
+  const offerEmergency = () => {
+    if (!emergency) return;
+    dl.offer({
+      blob: emergency.blob,
+      filename: emergency.name,
+      kind: "backup",
+      title: "پشتیبان اضطراری آماده است",
+      note: "این فایل، وضعیت فعلی فروشگاه است — پیش از بازیابی حتماً آن را دانلود و نزد خود نگه دارید.",
+    });
   };
 
   const onPickFile = (f: File | null) => {
@@ -655,6 +697,7 @@ function BackupTab() {
         const parsed: unknown = JSON.parse(String(reader.result));
         const file = backupService.validate(parsed);
         setPending({ file, preview: backupService.preview(file) });
+        buildEmergency(); // پشتیبان اضطراری همین لحظه ساخته می‌شود — قبل از هر تغییری
       } catch (e) {
         toast.push("err", e instanceof Error ? e.message : "فایل پشتیبان نامعتبر است");
       } finally {
@@ -671,11 +714,23 @@ function BackupTab() {
 
   const confirmRestore = () => {
     if (!pending) return;
+    /* بازیابی فقط وقتی مجاز است که پشتیبان اضطراری ساخته شده و کاربر دریافتش را تأیید کرده باشد */
+    if (!emergency) {
+      toast.push("err", emergencyErr || "پشتیبان اضطراری آماده نیست — بازیابی متوقف شد");
+      return;
+    }
+    if (!acked) {
+      toast.push("err", "ابتدا دریافت پشتیبان اضطراری را تأیید کنید");
+      return;
+    }
     setBusy(true);
     try {
-      const emergency = backupService.restore(pending.file);
-      toast.push("ok", `بازیابی کامل انجام شد — پشتیبان اضطراری وضعیت قبلی: ${emergency}`);
+      backupService.restore(pending.file, emergency.name);
+      toast.push("ok", "بازیابی کامل انجام شد — داده‌ها با پشتیبان جایگزین شدند");
       setPending(null);
+      setEmergency(null);
+      setAcked(false);
+      force((x) => x + 1);
     } catch (e) {
       toast.push("err", e instanceof Error ? e.message : "بازیابی ناموفق بود — وضعیت فعلی دست‌نخورده ماند");
     } finally {
@@ -739,12 +794,12 @@ function BackupTab() {
         </ul>
       </div>
 
-      {/* پیش‌نمایش و تأیید بازیابی */}
+      {/* پیش‌نمایش و تأیید بازیابی — با دروازهٔ پشتیبان اضطراری */}
       <Modal open={!!pending} onClose={() => setPending(null)} title="پیش‌نمایش پشتیبان">
         {pending && (
           <div className="space-y-3">
             <div className="rounded-xl border border-warn/50 bg-warnsoft/60 px-3.5 py-2.5 text-[11px] font-bold leading-5 text-[#8a5a06]">
-              بازیابی، همه داده‌های فعلی را با این پشتیبان جایگزین می‌کند. قبل از آن، پشتیبان اضطراری از وضعیت فعلی دانلود می‌شود.
+              بازیابی، همه داده‌های فعلی را با این پشتیبان جایگزین می‌کند. پیش از آن باید پشتیبان اضطراریِ وضعیت فعلی را دریافت کنید.
             </div>
             <div className="grid grid-cols-2 gap-2 text-sm">
               <InfoRow k="تاریخ پشتیبان" v={`${jalaliDate(pending.preview.createdAt)} — ${fmtDateTime(pending.preview.createdAt)}`} />
@@ -756,15 +811,51 @@ function BackupTab() {
               <InfoRow k="تعمیرات" v={faNum(pending.preview.maintenances)} />
               <InfoRow k="دسته‌ها" v={faNum(pending.preview.categories)} />
             </div>
+
+            {/* گام ۱: پشتیبان اضطراری */}
+            <div className="rounded-xl border border-line bg-black/[0.02] p-3">
+              <p className="text-[11px] font-extrabold text-ink">گام ۱ — پشتیبان اضطراری از وضعیت فعلی</p>
+              {emergencyErr ? (
+                <p className="mt-1.5 text-[11px] font-bold leading-5 text-danger">{emergencyErr} بدون نسخه نجات، بازیابی انجام نمی‌شود.</p>
+              ) : emergency ? (
+                <>
+                  <p className="num mt-1 truncate text-[11px] font-bold text-inksoft" dir="ltr" style={{ textAlign: "left" }}>
+                    {emergency.name}
+                  </p>
+                  <Btn size="sm" variant="outline" className="mt-2 w-full" onClick={offerEmergency}>
+                    <IconDownload size={14} />
+                    دانلود پشتیبان اضطراری
+                  </Btn>
+                  <label className="mt-2 flex cursor-pointer items-start gap-2 text-[11px] font-bold leading-5 text-inksoft">
+                    <input
+                      type="checkbox"
+                      checked={acked}
+                      onChange={(e) => setAcked(e.target.checked)}
+                      className="mt-0.5 size-4 accent-[#ff8a00]"
+                    />
+                    فایل پشتیبان اضطراری را دریافت کردم و نزد خود نگه داشتم
+                  </label>
+                </>
+              ) : (
+                <p className="mt-1.5 text-[11px] font-bold text-inkmute">در حال ساخت پشتیبان اضطراری…</p>
+              )}
+            </div>
+
+            {/* گام ۲: خود بازیابی */}
             <div className="flex gap-2">
               <Btn variant="outline" className="flex-1" onClick={() => setPending(null)} disabled={busy}>
                 انصراف
               </Btn>
-              <Btn className="flex-1" onClick={confirmRestore} disabled={busy}>
+              <Btn className="flex-1" onClick={confirmRestore} disabled={busy || !emergency || !acked}>
                 <IconUpload size={15} />
-                {busy ? "در حال بازیابی…" : "تأیید و بازیابی"}
+                {busy ? "در حال بازیابی…" : "گام ۲ — تأیید و بازیابی"}
               </Btn>
             </div>
+            {(!emergency || !acked) && (
+              <p className="text-center text-[10px] font-bold text-inkmute">
+                تا زمانی که پشتیبان اضطراری را دریافت و تأیید نکنید، بازیابی قفل است
+              </p>
+            )}
           </div>
         )}
       </Modal>
