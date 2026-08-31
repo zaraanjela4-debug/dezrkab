@@ -67,7 +67,10 @@ export default function NewRental() {
     const code = route.params.get("cat");
     if (code) {
       const cat = db.categories.find((c) => c.code === code && c.active);
-      if (cat) setQtys({ [cat.id]: 1 });
+      /* پیش‌انتخاب فقط برای دسته‌ای که همین لحظه موجودی دارد — صفر موجودی هرگز پیش‌انتخاب نمی‌شود */
+      if (cat && availabilityService.availableCount(db, cat.id) > 0) {
+        setQtys({ [cat.id]: 1 });
+      }
     }
     phoneRef.current?.focus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -125,6 +128,38 @@ export default function NewRental() {
       setStage("bikes");
     }
   }, [customerReady, hours, totalUnits, stage, confirmed]);
+
+  /*
+    هم‌گام‌سازی زنده پیش‌نویس با موجودی لحظه‌ای (M5):
+    اگر موجودی دسته‌ای حین بازبودن فرم کاهش یافت (اجاره هم‌زمان، تعمیر و…)،
+    تعداد انتخابی بلافاصله به سقف جدید محدود می‌شود — در صفر، از پیش‌نویس حذف می‌شود.
+    هیچ تعداد قدیمی‌شده‌ای بی‌صدا به تأیید نهایی نمی‌رسد؛ لایه تراکنش هم هنگام commit دوباره بررسی می‌کند.
+  */
+  useEffect(() => {
+    if (confirmed) return;
+    const stale = Object.entries(qtys).filter(
+      ([id, q]) => q > availabilityService.availableCount(db, id, now)
+    );
+    if (stale.length > 0) {
+      setQtys((q) => {
+        const next = { ...q };
+        for (const [id] of stale) {
+          const avail = availabilityService.availableCount(db, id, now);
+          if ((next[id] ?? 0) > avail) {
+            if (avail === 0) delete next[id];
+            else next[id] = avail;
+          }
+        }
+        return next;
+      });
+      toast.push(
+        "err",
+        stale.length === 1 && qtys[stale[0][0]] > 0 && availabilityService.availableCount(db, stale[0][0], now) === 0
+          ? `«${db.categories.find((c) => c.id === stale[0][0])?.name ?? ""}» ناموجود شد — از پیش‌نویس حذف شد`
+          : "موجودی تغییر کرد — تعداد انتخابی با موجودی لحظه‌ای هماهنگ شد"
+      );
+    }
+  }, [db, now, confirmed, qtys]); // eslint-disable-line react-hooks/exhaustive-deps
 
   /* --------- گذار نرم: تمرکز خودکار روی مرحله بعد + اسکرول کوتاه --------- */
   useEffect(() => {
@@ -544,6 +579,9 @@ export default function NewRental() {
                     <p className={`num text-[11px] font-extrabold ${out ? "text-danger" : "text-ok"}`}>
                       {faNum(a.available)} موجود
                     </p>
+                    {out ? (
+                      <p className="text-[10px] font-bold text-danger/80">فعلاً قابل اجاره نیست</p>
+                    ) : null}
                     <div className="mt-1.5 flex items-center justify-between gap-1">
                       <button
                         onClick={() => setQty(a.category.id, q - 1, a.available)}
