@@ -32,6 +32,8 @@ body {
   background: var(--color-paper);
   color: var(--color-ink);
   -webkit-font-smoothing: antialiased;
+  /* جهت سند — حتی اگر میزبانِ صفحه dir را از <html> حذف کند، RTL برقرار می‌ماند */
+  direction: rtl;
 }
 
 ::selection {

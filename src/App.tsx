@@ -50,6 +50,14 @@ const NAV: NavItem[] = [
   { path: "settings", label: "تنظیمات", icon: IconGear, perm: "settings.manage" },
 ];
 
+/** مسیر اجاره — از «پیشخوان» وارد می‌شود؛ عمداً در منوی کناری نمایش داده نمی‌شود */
+const RENTAL_ROUTE: NavItem = {
+  path: "rental",
+  label: "شروع اجاره",
+  icon: IconBike,
+  perm: "rental.create",
+};
+
 function Forbidden() {
   return (
     <div className="anim-pop card mx-auto mt-16 max-w-sm p-8 text-center">
@@ -80,11 +88,14 @@ function Shell() {
   if (!user) return <Login />;
 
   const nav = NAV.filter((n) => !n.perm || can(user, n.perm));
-  const active = NAV.find((n) => n.path === route.path) ?? NAV[0];
+  /* مسیر اجاره در منو نیست ولی باید به‌درستی resolve شود — وگرنه پیشخوان جایگزینش می‌شد */
+  const active =
+    NAV.find((n) => n.path === route.path) ??
+    (route.path === RENTAL_ROUTE.path ? RENTAL_ROUTE : NAV[0]);
   const allowed = !active.perm || can(user, active.perm);
 
   return (
-    <div className="flex min-h-screen bg-paper">
+    <div dir="rtl" lang="fa" className="flex min-h-screen bg-paper">
       {/* سایدبار */}
       <aside className="sticky top-0 hidden h-screen w-[226px] shrink-0 flex-col justify-between bg-coal lg:flex">
         <div>
@@ -99,7 +110,10 @@ function Shell() {
           </div>
           <nav className="space-y-1 px-3">
             {nav.map((n) => {
-              const isActive = route.path === n.path;
+              /* هنگام اجاره، «پیشخوان» روشن می‌ماند چون اجاره از همان‌جا شروع شده */
+              const isActive =
+                route.path === n.path ||
+                (route.path === RENTAL_ROUTE.path && n.path === "dashboard");
               return (
                 <button
                   key={n.path}
@@ -166,7 +180,9 @@ function Shell() {
               key={n.path}
               onClick={() => navigate(n.path)}
               className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-[11px] font-bold transition-colors ${
-                route.path === n.path ? "bg-brand text-white" : "bg-white/10 text-white/70"
+                route.path === n.path || (route.path === RENTAL_ROUTE.path && n.path === "dashboard")
+                  ? "bg-brand text-white"
+                  : "bg-white/10 text-white/70"
               }`}
             >
               <n.icon size={13} />
@@ -185,9 +201,7 @@ function Shell() {
         {/* هدر */}
         <header className="sticky top-0 z-30 hidden items-center justify-between border-b border-line bg-paper/85 px-6 py-3.5 backdrop-blur lg:flex">
           <div className="flex items-center gap-3">
-            <h2 className="font-display text-2xl text-ink">
-              {route.path === "rental" ? "شروع اجاره" : active.label}
-            </h2>
+            <h2 className="font-display text-2xl text-ink">{active.label}</h2>
             <Badge tone={user.role === "MANAGER" ? "brand" : "neutral"}>
               {user.role === "MANAGER" ? "مدیر" : "فروشنده"}
             </Badge>

@@ -97,7 +97,7 @@ export default function Login() {
   }
 
   return (
-    <div className="flex min-h-screen">
+    <div dir="rtl" lang="fa" className="flex min-h-screen">
       {/* پنل برند */}
       <aside className="dots-bg relative hidden flex-1 flex-col justify-between overflow-hidden bg-coal p-10 text-white lg:flex">
         <div
