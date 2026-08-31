@@ -96,6 +96,46 @@ export const authService = {
     return u;
   },
 
+  /**
+   * راه‌اندازی اولیه — فقط وقتی هیچ حساب مدیرِ فعالی وجود ندارد.
+   * بعد از ساخت اولین مدیر، این مسیر برای همیشه بسته می‌شود.
+   */
+  needsSetup(): boolean {
+    return !getDB().users.some((u) => u.role === "MANAGER" && u.active);
+  },
+
+  /** ساخت اولین حساب مدیر با رمز انتخابی کاربر — هیچ رمز پیش‌فرضی وجود ندارد */
+  createFirstManager(input: { name: string; username: string; password: string }): User {
+    const name = input.name.trim().replace(/\s+/g, " ");
+    const username = input.username.trim().toLowerCase();
+    if (!name) throw new Error("نام و نام خانوادگی مدیر را وارد کنید");
+    if (!username) throw new Error("نام کاربری را وارد کنید");
+    if (input.password.length < 4) throw new Error("رمز عبور باید حداقل ۴ کاراکتر باشد");
+    return mutate((draft) => {
+      // نگهبان سمت سرویس: حتی اگر UI قدیمی باشد، تکرار راه‌اندازی ممکن نیست
+      if (draft.users.some((u) => u.role === "MANAGER" && u.active)) {
+        throw new Error("حساب مدیر قبلاً ساخته شده — راه‌اندازی اولیه فقط یک‌بار است");
+      }
+      if (draft.users.some((u) => u.username.toLowerCase() === username)) {
+        throw new Error("این نام کاربری قبلاً ثبت شده است");
+      }
+      const user: User = {
+        id: `usr-${Date.now().toString(36)}`,
+        name,
+        username,
+        passHash: hashPassword(input.password),
+        role: "MANAGER",
+        active: true,
+        createdAt: Date.now(),
+      };
+      draft.users.push(user);
+      draft.__actor = user.id;
+      auditService.log(draft, "ایجاد حساب مدیر اولیه", "user", user.id, `${name} — ${username}`);
+      delete draft.__actor;
+      return user;
+    });
+  },
+
   actorId(): string {
     return this.currentUser()?.id ?? "system";
   },

@@ -1,10 +1,11 @@
 import { useState, type FormEvent } from "react";
 import { navigate, useAuth, useNow } from "../state/app";
+import { authService } from "../services/authService";
 import { useDB } from "../storage/storage";
 import { fmtDateFull, fmtTime, fmtWeekday } from "../utils/format";
 
 import { Btn } from "../ui/kit";
-import { IconBike, IconLock, IconUser } from "../ui/icons";
+import { IconBike, IconGear, IconLock, IconUser } from "../ui/icons";
 
 function Wheel({ cx, cy, r }: { cx: number; cy: number; r: number }) {
   return (
@@ -51,6 +52,16 @@ export default function Login() {
   const [errKey, setErrKey] = useState(0);
   const [busy, setBusy] = useState(false);
 
+  /* راه‌اندازی اولیه — فقط وقتی هیچ مدیر فعالی وجود ندارد */
+  const needsSetup = authService.needsSetup();
+  const [suName, setSuName] = useState("");
+  const [suUser, setSuUser] = useState("");
+  const [suPass, setSuPass] = useState("");
+  const [suPass2, setSuPass2] = useState("");
+  const [suErr, setSuErr] = useState("");
+  const [suErrKey, setSuErrKey] = useState(0);
+  const [suDone, setSuDone] = useState(false);
+
   function submit(e: FormEvent) {
     e.preventDefault();
     setErr("");
@@ -66,6 +77,23 @@ export default function Login() {
         setBusy(false);
       }
     }, 350);
+  }
+
+  function submitSetup(e: FormEvent) {
+    e.preventDefault();
+    setSuErr("");
+    if (suPass !== suPass2) {
+      setSuErr("رمز عبور و تکرار آن یکسان نیست");
+      setSuErrKey((k) => k + 1);
+      return;
+    }
+    try {
+      authService.createFirstManager({ name: suName, username: suUser, password: suPass });
+      setSuDone(true); // با ساخته‌شدن مدیر، needsSetup خاموش می‌شود و فرم ورود جایگزین می‌شود
+    } catch (ex) {
+      setSuErr(ex instanceof Error ? ex.message : "ایجاد حساب ناموفق بود");
+      setSuErrKey((k) => k + 1);
+    }
   }
 
   return (
@@ -130,7 +158,113 @@ export default function Login() {
             <h1 className="font-display text-2xl">{db.settings.storeName}</h1>
           </div>
 
+          {suDone && !needsSetup ? (
+            <div className="anim-pop mb-4 rounded-xl border border-ok/30 bg-oksoft px-4 py-3 text-xs font-bold text-ok">
+              حساب مدیر ساخته شد — حالا با نام کاربری و رمز خود وارد شوید
+            </div>
+          ) : null}
+
           <div className="card p-6">
+            {needsSetup ? (
+              /* ---------- راه‌اندازی اولیه: ساخت اولین مدیر ---------- */
+              <>
+                <div className="flex items-center gap-2.5">
+                  <span className="grid size-10 place-items-center rounded-xl bg-brand text-white shadow-[0_6px_18px_rgba(255,138,0,0.3)]">
+                    <IconGear size={20} />
+                  </span>
+                  <div>
+                    <h2 className="font-display text-2xl leading-7 text-ink">راه‌اندازی اولیه</h2>
+                    <p className="text-[11px] font-bold text-branddeep">ساخت اولین حساب مدیر فروشگاه</p>
+                  </div>
+                </div>
+                <p className="mt-3 rounded-lg bg-black/[0.03] px-3 py-2.5 text-[11px] leading-6 text-inksoft">
+                  هنوز حساب مدیری وجود ندارد. نام کاربری و رمز عبور را خودتان انتخاب کنید —
+                  این مرحله فقط یک‌بار انجام می‌شود و بعد از ساخت مدیر بسته می‌شود.
+                </p>
+
+                {suErr ? (
+                  <div
+                    key={suErrKey}
+                    className="anim-shake mt-3 rounded-lg border border-danger/30 bg-dangersoft px-3 py-2.5 text-xs font-bold text-danger"
+                  >
+                    {suErr}
+                  </div>
+                ) : null}
+
+                <form onSubmit={submitSetup} className="mt-4 space-y-3.5">
+                  <div>
+                    <label className="lbl">نام و نام خانوادگی مدیر</label>
+                    <input
+                      className="inp"
+                      value={suName}
+                      onChange={(e) => setSuName(e.target.value)}
+                      placeholder="مثلاً: امیر تهرانی"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="lbl">نام کاربری</label>
+                    <div className="relative">
+                      <input
+                        className="inp pe-3 ps-10"
+                        dir="ltr"
+                        style={{ textAlign: "left" }}
+                        value={suUser}
+                        onChange={(e) => setSuUser(e.target.value)}
+                        placeholder="username"
+                      />
+                      <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-inkmute">
+                        <IconUser size={17} />
+                      </span>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="lbl">رمز عبور</label>
+                      <div className="relative">
+                        <input
+                          className="inp pe-3 ps-10"
+                          dir="ltr"
+                          style={{ textAlign: "left" }}
+                          type="password"
+                          value={suPass}
+                          onChange={(e) => setSuPass(e.target.value)}
+                          placeholder="••••••"
+                        />
+                        <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-inkmute">
+                          <IconLock size={17} />
+                        </span>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="lbl">تکرار رمز عبور</label>
+                      <div className="relative">
+                        <input
+                          className="inp pe-3 ps-10"
+                          dir="ltr"
+                          style={{ textAlign: "left" }}
+                          type="password"
+                          value={suPass2}
+                          onChange={(e) => setSuPass2(e.target.value)}
+                          placeholder="••••••"
+                        />
+                        <span className="pointer-events-none absolute start-3 top-1/2 -translate-y-1/2 text-inkmute">
+                          <IconLock size={17} />
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+                  <Btn type="submit" size="lg" className="w-full">
+                    ساخت حساب مدیر
+                  </Btn>
+                  <p className="text-center text-[10px] leading-5 text-inkmute">
+                    حساب فروشنده را بعداً مدیر از «تنظیمات ← کاربران» می‌سازد
+                  </p>
+                </form>
+              </>
+            ) : (
+              /* ---------- فرم ورود ---------- */
+              <>
             <h2 className="font-display text-2xl text-ink">ورود به سامانه</h2>
             <p className="mt-1 text-xs text-inksoft">برای ادامه، حساب کاربری خود را وارد کنید</p>
 
@@ -182,24 +316,8 @@ export default function Login() {
                 {busy ? "در حال بررسی…" : "ورود"}
               </Btn>
             </form>
-          </div>
-
-          <div className="card mt-4 p-4">
-            <p className="text-[11px] font-bold text-inkmute">دسترسی آزمایشی (نسخه نمایشی)</p>
-            <div className="mt-2 space-y-1.5 text-xs">
-              <div className="flex items-center justify-between rounded-lg bg-black/[0.03] px-3 py-2">
-                <span className="font-bold text-ink">مدیر فروشگاه</span>
-                <code className="num text-inksoft" dir="ltr">
-                  manager / 1234
-                </code>
-              </div>
-              <div className="flex items-center justify-between rounded-lg bg-black/[0.03] px-3 py-2">
-                <span className="font-bold text-ink">فروشنده</span>
-                <code className="num text-inksoft" dir="ltr">
-                  seller / 1234
-                </code>
-              </div>
-            </div>
+              </>
+            )}
           </div>
         </div>
       </main>

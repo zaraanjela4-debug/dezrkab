@@ -253,10 +253,8 @@ function seedDB(): DB {
   return {
     rev: 1,
     seq: { rental: 1004 },
-    users: [
-      { id: "usr-manager", name: "امیر تهرانی", username: "manager", passHash: hashPassword("1234"), role: "MANAGER", active: true, createdAt: now - 90 * 24 * H },
-      { id: "usr-seller", name: "سارا محمدی", username: "seller", passHash: hashPassword("1234"), role: "SELLER", active: true, createdAt: now - 60 * 24 * H },
-    ],
+    /* بدون هیچ حساب پیش‌فرض — مدیر اولیه از «راه‌اندازی اولیه» با رمز انتخابی خود ساخته می‌شود */
+    users: [],
     categories,
     bikes,
     customers,
@@ -345,7 +343,18 @@ function normalizeDB(p: DB): DB {
     if (acc.name === "دستگاه کارت‌خوان") acc.name = "مهر ایران";
     if (acc.name === "صندوق نقدی") acc.name = "نقدی";
   }
-  return { ...p, customers, rentals, settings };
+
+  /*
+    مهاجرت امنیتی M3 (هم هنگام بارگذاری و هم هنگام بازیابی پشتیبان):
+    حساب‌های نمایشیِ قدیمی با رمز قابل‌پیش‌بینی (manager/1234 و seller/1234) حذف می‌شوند.
+    حساب‌های واقعی — حتی با نام کاربری مشابه — چون هش رمز متفاوتی دارند دست نمی‌خورند.
+  */
+  const demoHash = hashPassword("1234");
+  const users = (p.users ?? []).filter(
+    (u) =>
+      !(u.passHash === demoHash && (u.username === "manager" || u.username === "seller"))
+  );
+  return { ...p, users, customers, rentals, settings };
 }
 
 /* --------------------------- store با snapshot --------------------------- */

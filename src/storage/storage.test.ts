@@ -56,7 +56,27 @@ async function main(): Promise<void> {
   const { paymentService } = await import("../services/paymentService");
   const { availabilityService } = await import("../services/availabilityService");
 
-  authService.login("manager", "1234"); // نشست روی stub — بدون شکست
+  /* ============ T0: راه‌اندازی اولیه (M3) — بدون حساب پیش‌فرض ============ */
+  {
+    const needsBefore = authService.needsSetup();
+    const mgr = authService.createFirstManager({
+      name: "مدیر آزمایش",
+      username: "boss",
+      password: "test-pass-1",
+    });
+    check("T0a — needsSetup() در حالت اولیه true بود", needsBefore);
+    check("T0b — حساب مدیر با رمز انتخابی ساخته شد", mgr.role === "MANAGER" && mgr.active && mgr.username === "boss");
+    check("T0c — بعد از ساخت مدیر، راه‌اندازی اولیه بسته شد", !authService.needsSetup());
+    let dup: unknown = null;
+    try {
+      authService.createFirstManager({ name: "دوم", username: "second", password: "whatever" });
+    } catch (e) {
+      dup = e;
+    }
+    check("T0d — ساخت مدیر دوم مسدود شد", dup instanceof Error);
+  }
+
+  authService.login("boss", "test-pass-1"); // نشست روی stub — بدون شکست
   const db0 = storage.getDB();
   const catA = db0.categories.find((c) => c.code === "A");
   const cus1 = db0.customers[0];
