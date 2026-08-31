@@ -1,12 +1,7 @@
 const nf = new Intl.NumberFormat("fa-IR");
-const nf1 = new Intl.NumberFormat("fa-IR", { maximumFractionDigits: 1 });
 
 export function faNum(n: number): string {
   return nf.format(Math.round(n));
-}
-
-export function faNum1(n: number): string {
-  return nf1.format(n);
 }
 
 export function money(n: number): string {
@@ -54,19 +49,6 @@ export function fmtDateTime(ts: number): string {
 }
 export function fmtWeekday(ts: number): string {
   return weekdayFmt.format(new Date(ts));
-}
-
-export function toLocalInput(ts: number): string {
-  const d = new Date(ts);
-  const p = (x: number) => String(x).padStart(2, "0");
-  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(
-    d.getHours()
-  )}:${p(d.getMinutes())}`;
-}
-
-export function fromLocalInput(s: string): number {
-  const t = new Date(s).getTime();
-  return Number.isFinite(t) ? t : Date.now();
 }
 
 export interface Countdown {
@@ -167,4 +149,55 @@ export function jalaliDate(ts: number): string {
 export function jalaliMonthKey(ts: number): string {
   const mp = jalaliMonthFmt.formatToParts(new Date(ts));
   return `${part(mp, "year")}/${part(mp, "month")}`;
+}
+
+/* ------------------- اعتبارسنجی بازه دلخواه گزارش (L2) ------------------- */
+
+const DAY_MS = 86_400_000;
+
+export interface RangeValidation {
+  ok: boolean;
+  /** شروع روز «از» — نیمه‌شب */
+  start: number;
+  /** پایان روز «تا» — نیمه‌شبِ بعد (بازه نیمه‌باز [start, end)) */
+  end: number;
+  reason: string;
+  /** کدام ورودی نامعتبر است — برای نمایش بصری */
+  field: "from" | "to" | null;
+}
+
+/**
+ * تبدیل مقدار input[type=date] به زمان دقیق نیمه‌شب محلی.
+ * تاریخ‌های غیرممکن (مثل 2024-02-30 که جاوااسکریپت به ۱ اسفند می‌غلتاند) رد می‌شوند.
+ */
+export function parseDateInput(str: string): number | null {
+  const s = str.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(s)) return null;
+  const t = new Date(`${s}T00:00`).getTime();
+  if (!Number.isFinite(t)) return null;
+  const [y, m, d] = s.split("-").map(Number);
+  const dt = new Date(t);
+  if (dt.getFullYear() !== y || dt.getMonth() + 1 !== m || dt.getDate() !== d) {
+    return null;
+  }
+  return t;
+}
+
+/** بازه دلخواه — هیچ بازه نامعتبری بی‌صدا با «امروز» جایگزین نمی‌شود */
+export function validateCustomRange(fromStr: string, toStr: string): RangeValidation {
+  const bad = (reason: string, field: "from" | "to" | null): RangeValidation => ({
+    ok: false,
+    start: 0,
+    end: 0,
+    reason,
+    field,
+  });
+  if (!fromStr) return bad("تاریخ شروع وارد نشده است.", "from");
+  if (!toStr) return bad("تاریخ پایان وارد نشده است.", "to");
+  const start = parseDateInput(fromStr);
+  if (start === null) return bad("تاریخ شروع نامعتبر است.", "from");
+  const to = parseDateInput(toStr);
+  if (to === null) return bad("تاریخ پایان نامعتبر است.", "to");
+  if (start > to) return bad("تاریخ شروع بعد از تاریخ پایان است.", "from");
+  return { ok: true, start, end: to + DAY_MS, reason: "", field: null };
 }

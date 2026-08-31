@@ -8,10 +8,11 @@ import type { Analytics } from "../services/reportService";
 import { exportAIJSON, REPORT_TYPE_LABEL } from "../services/exportService";
 import type { ReportType } from "../services/exportService";
 import { useDB } from "../storage/storage";
-import { accountKindLabel, faNum, jalaliDate, money, startOfDay } from "../utils/format";
+import { accountKindLabel, faNum, jalaliDate, money, startOfDay, validateCustomRange, type RangeValidation } from "../utils/format";
 import { Badge, Btn, Modal, useToast } from "../ui/kit";
 import PrintReport from "../ui/PrintReport";
 import {
+  IconAlert,
   IconBike,
   IconCash,
   IconChart,
@@ -56,31 +57,36 @@ export default function Reports() {
   const [pdfType, setPdfType] = useState<ReportType>("full");
   const [printJob, setPrintJob] = useState<ReportType | null>(null);
 
-  const [start, end] = useMemo((): [number, number] => {
-    switch (preset) {
-      case "today":
-        return todayRange();
-      case "yesterday":
-        return yesterdayRange();
-      case "week":
-        return thisWeekRange();
-      case "month":
-        return thisMonthRange();
-      case "lastMonth":
-        return lastMonthRange();
-      case "custom": {
-        const s = new Date(fromStr + "T00:00").getTime();
-        const e = new Date(toStr + "T23:59").getTime() + 59_000;
-        if (!Number.isFinite(s) || !Number.isFinite(e) || e <= s) return todayRange();
-        return [s, e];
-      }
-    }
+  /* بازه دلخواه نامعتبر هرگز بی‌صدا با «امروز» جایگزین نمی‌شود — گزارش تولید نمی‌شود */
+  const range = useMemo((): RangeValidation => {
+    if (preset === "custom") return validateCustomRange(fromStr, toStr);
+    const [s, e] =
+      preset === "today"
+        ? todayRange()
+        : preset === "yesterday"
+          ? yesterdayRange()
+          : preset === "week"
+            ? thisWeekRange()
+            : preset === "month"
+              ? thisMonthRange()
+              : lastMonthRange();
+    return { ok: true, start: s, end: e, reason: "", field: null };
   }, [preset, fromStr, toStr]);
 
-  const a = useMemo(() => reportService.buildAnalytics(db, start, end), [db, start, end]);
+  const start = range.start;
+  const end = range.end;
+
+  const a = useMemo(
+    () => (range.ok ? reportService.buildAnalytics(db, range.start, range.end) : null),
+    [db, range]
+  );
 
   const doJSON = () => {
-    const name = exportAIJSON(db, start, end);
+    if (!range.ok) {
+      toast.push("err", "بازه تاریخ نامعتبر است.");
+      return;
+    }
+    const name = exportAIJSON(db, range.start, range.end);
     toast.push("ok", `فایل ${name} دانلود شد — آماده برای تحلیل هوش مصنوعی`);
   };
 
@@ -112,25 +118,56 @@ export default function Reports() {
         </div>
         {preset === "custom" && (
           <div className="anim-pop flex items-center gap-2">
-            <input type="date" className="inp num w-36" dir="ltr" value={fromStr} onChange={(e) => setFromStr(e.target.value)} />
+            <input
+              type="date"
+              className={`inp num w-36 ${range.field === "from" ? "border-danger ring-2 ring-danger/20" : ""}`}
+              dir="ltr"
+              value={fromStr}
+              onChange={(e) => setFromStr(e.target.value)}
+            />
             <span className="text-xs text-inkmute">تا</span>
-            <input type="date" className="inp num w-36" dir="ltr" value={toStr} onChange={(e) => setToStr(e.target.value)} />
+            <input
+              type="date"
+              className={`inp num w-36 ${range.field === "to" ? "border-danger ring-2 ring-danger/20" : ""}`}
+              dir="ltr"
+              value={toStr}
+              onChange={(e) => setToStr(e.target.value)}
+            />
           </div>
         )}
-        <span className="num text-[11px] font-bold text-inkmute">
-          {jalaliDate(start)} تا {jalaliDate(end - 1)}
-        </span>
+        {range.ok ? (
+          <span className="num text-[11px] font-bold text-inkmute">
+            {jalaliDate(start)} تا {jalaliDate(end - 1)}
+          </span>
+        ) : (
+          <span className="text-[11px] font-extrabold text-danger">بازه نامعتبر</span>
+        )}
         <div className="ms-auto flex gap-2">
-          <Btn variant="dark" size="sm" onClick={() => setPdfPicker(true)}>
+          <Btn variant="dark" size="sm" onClick={() => setPdfPicker(true)} disabled={!range.ok}>
             <IconPrint size={14} />
             خروجی PDF
           </Btn>
-          <Btn size="sm" onClick={doJSON}>
+          <Btn size="sm" onClick={doJSON} disabled={!range.ok}>
             <IconFileText size={14} />
             خروجی JSON برای هوش مصنوعی
           </Btn>
         </div>
       </div>
+
+      {!range.ok || !a ? (
+        <div className="anim-pop card flex items-center gap-3 border-danger/40 bg-dangersoft/60 p-4">
+          <span className="grid size-10 shrink-0 place-items-center rounded-xl bg-danger text-white">
+            <IconAlert size={20} />
+          </span>
+          <div>
+            <p className="font-display text-lg leading-6 text-danger">بازه تاریخ نامعتبر است.</p>
+            <p className="mt-0.5 text-xs font-bold text-inksoft">
+              {range.reason} تا اصلاح بازه، گزارشی تولید نمی‌شود.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <>
 
       {/* خلاصه مدیریتی */}
       <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-5">
@@ -239,6 +276,8 @@ export default function Reports() {
             <PrintReport type={printJob} a={a} db={db} />
           </div>
         </div>
+      )}
+        </>
       )}
     </div>
   );

@@ -43,13 +43,6 @@ export const IconUsers = (p: IconProps) => (
   </svg>
 );
 
-export const IconClipboard = (p: IconProps) => (
-  <svg {...svgProps(p)}>
-    <rect x="5" y="4" width="14" height="17" rx="2" />
-    <path d="M9 2.8h6v3H9zM9 11h6M9 15h4" />
-  </svg>
-);
-
 export const IconReturn = (p: IconProps) => (
   <svg {...svgProps(p)}>
     <path d="M9 14 4 9l5-5" />

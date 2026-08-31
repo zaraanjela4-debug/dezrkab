@@ -3,7 +3,6 @@
  * هیچ صفحه‌ای منطق قیمت را برای خودش کپی نمی‌کند؛ همه از اینجا می‌خوانند.
  */
 import type { DB, Rental, RentalItem, Settings } from "../domain/models";
-import { getDB } from "../storage/storage";
 
 export interface QuoteLine {
   categoryId: string;
@@ -117,9 +116,5 @@ export const pricingService = {
   /** زمان آزادسازی دوچرخه بعد از برگشت — قانون گردش تنظیمات */
   releaseAt(db: DB, returnedEarly: boolean, now: number = Date.now()): number {
     return returnedEarly ? now + db.settings.releaseDelayMinutes * 60_000 : now;
-  },
-
-  activeSettings(): Settings {
-    return getDB().settings;
   },
 };
