@@ -549,6 +549,7 @@ function GeneralTab() {
             </div>
           </div>
         </div>
+        <ReceiptCard />
         <div className="card border-danger/30 p-4">
           <h3 className="flex items-center gap-2 font-display text-base text-danger">
             <IconAlert size={17} />
@@ -868,6 +869,69 @@ function InfoRow({ k, v }: { k: string; v: string }) {
     <div className="rounded-lg bg-black/[0.03] px-3 py-2">
       <p className="text-[10px] font-bold text-inkmute">{k}</p>
       <p className="num mt-0.5 text-xs font-extrabold text-ink">{v}</p>
+    </div>
+  );
+}
+
+/* ----------------------------- متن رسید حرارتی ----------------------------- */
+
+function ReceiptCard() {
+  const db = useDB();
+  const toast = useToast();
+  const s = db.settings;
+  const [titleMain, setTitleMain] = useState(s.receiptTitleMain);
+  const [titleSub, setTitleSub] = useState(s.receiptTitleSub);
+  const [thanks, setThanks] = useState(s.receiptThanks);
+  const [phone, setPhone] = useState(s.receiptPhone);
+  const [lateRule, setLateRule] = useState(s.receiptLateRule);
+
+  function save() {
+    try {
+      settingsService.updateGeneral({
+        receiptTitleMain: titleMain,
+        receiptTitleSub: titleSub,
+        receiptThanks: thanks,
+        receiptPhone: phone,
+        receiptLateRule: lateRule,
+      });
+      toast.push("ok", "متن رسید ذخیره شد — از فاکتور بعدی اعمال می‌شود");
+    } catch (e) {
+      toast.push("err", e instanceof Error ? e.message : "ناموفق");
+    }
+  }
+
+  return (
+    <div className="card p-4">
+      <h3 className="font-display text-base text-ink">متن رسید حرارتی (۸۰mm)</h3>
+      <p className="mt-1 text-[11px] text-inkmute">این متن‌ها روی فاکتور چاپی اجاره نمایش داده می‌شوند</p>
+      <div className="mt-3 space-y-3">
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="lbl">عنوان اصلی *</label>
+            <input className="inp" value={titleMain} onChange={(e) => setTitleMain(e.target.value)} />
+          </div>
+          <div>
+            <label className="lbl">عنوان فرعی</label>
+            <input className="inp" value={titleSub} onChange={(e) => setTitleSub(e.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="lbl">پیام تشکر</label>
+          <input className="inp" value={thanks} onChange={(e) => setThanks(e.target.value)} />
+        </div>
+        <div>
+          <label className="lbl">شماره تماس *</label>
+          <input className="inp num" dir="ltr" style={{ textAlign: "left" }} value={phone} onChange={(e) => setPhone(e.target.value)} />
+        </div>
+        <div>
+          <label className="lbl">قانون دیرکرد *</label>
+          <textarea className="inp min-h-16 resize-y" value={lateRule} onChange={(e) => setLateRule(e.target.value)} />
+        </div>
+        <Btn onClick={save}>
+          <IconCheck size={15} />
+          ذخیره متن رسید
+        </Btn>
+      </div>
     </div>
   );
 }

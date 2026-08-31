@@ -194,6 +194,17 @@ export interface Settings {
   rewardDiscountPercent: number;
   durations: DurationOption[];
   accounts: PaymentAccount[];
+  /* ---------- متن‌های رسید حرارتی ۸۰mm — قابل ویرایش توسط مدیر ---------- */
+  /** عنوان اصلی رسید (خط بزرگ) */
+  receiptTitleMain: string;
+  /** عنوان فرعی رسید (خط بالای آن) */
+  receiptTitleSub: string;
+  /** پیام تشکر */
+  receiptThanks: string;
+  /** شماره تماس پایین رسید */
+  receiptPhone: string;
+  /** قانون دیرکرد */
+  receiptLateRule: string;
 }
 
 export interface DB {

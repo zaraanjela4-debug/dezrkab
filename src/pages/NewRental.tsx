@@ -5,14 +5,14 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { Customer, DB, Rental } from "../domain/models";
-import { useAuth, useNow, useRoute } from "../state/app";
+import { useNow, useRoute } from "../state/app";
 import { useDB } from "../storage/storage";
 import { availabilityService } from "../services/availabilityService";
 import { customerService } from "../services/customerService";
 import { paymentService } from "../services/paymentService";
 import { pricingService } from "../services/pricingService";
 import { rentalService } from "../services/rentalService";
-import { accountKindLabel, durationLabel, faNum, fmtDateTime, fmtTime, money } from "../utils/format";
+import { accountKindLabel, durationLabel, faNum, fmtDateFull, fmtTime, money } from "../utils/format";
 import { Btn, Modal, useToast } from "../ui/kit";
 import {
   IconBike,
@@ -29,7 +29,6 @@ type Stage = "phone" | "duration" | "bikes" | "confirm";
 
 export default function NewRental() {
   const db = useDB();
-  const { user } = useAuth();
   const toast = useToast();
   const route = useRoute();
   const now = useNow(1000);
@@ -859,7 +858,7 @@ export default function NewRental() {
         onClose={resetAll}
         title={confirmed ? `فاکتور اجاره #${faNum(confirmed.rental.number)}` : ""}
       >
-        {confirmed && <Receipt rental={confirmed.rental} startAt={confirmed.startAt} operatorName={user?.name ?? ""} />}
+        {confirmed && <Receipt rental={confirmed.rental} startAt={confirmed.startAt} />}
         <div className="mt-4 flex gap-2">
           <Btn className="flex-1" onClick={doPrint} autoFocus>
             <IconPrint size={16} />
@@ -955,73 +954,12 @@ function MiniRow({ k, v }: { k: ReactNode; v: ReactNode }) {
   );
 }
 
-/* ------------------------------- فاکتور چاپی ------------------------------- */
+/* ------------------------- رسید حرارتی ۸۰ میلی‌متری ------------------------- */
 
-function Receipt({ rental, startAt, operatorName }: { rental: Rental; startAt: number; operatorName: string }) {
+function Receipt({ rental, startAt }: { rental: Rental; startAt: number }) {
   const db = useDB();
   const S = db.settings;
   const cust = db.customers.find((c) => c.id === rental.customerId);
-  const dur = S.durations.find((d) => d.hours === rental.hours)?.label ?? durationLabel(rental.hours);
-
-  const bars = Array.from({ length: 28 }, (_, i) => ((rental.number * 7 + i * 13) % 3) === 0);
-
-  return (
-    <div className="print-root print-receipt mx-auto max-w-sm rounded-xl border-2 border-dashed border-linedeep bg-white p-5">
-      <div className="text-center">
-        <p className="font-display text-2xl text-ink">{S.storeName}</p>
-        <p className="text-[11px] font-bold text-inksoft">فاکتور اجاره دوچرخه</p>
-      </div>
-      <div className="my-3 border-t-2 border-dashed border-line" />
-      <div className="space-y-1 text-[13px]">
-        <ReceiptRow k="شماره اجاره" v={`#${faNum(rental.number)}`} bold />
-        <ReceiptRow k="تاریخ" v={fmtDateTime(rental.createdAt)} />
-        <ReceiptRow k="مشتری" v={cust?.name ?? "—"} bold />
-        <ReceiptRow k="تلفن" v={<span dir="ltr" className="num">{cust?.phone ?? "—"}</span>} />
-        <ReceiptRow k="مدت اجاره" v={dur} />
-        <ReceiptRow k="شروع" v={fmtTime(startAt)} />
-        <ReceiptRow k="برگشت مورد انتظار" v={fmtTime(rental.plannedEndAt)} />
-      </div>
-      <div className="my-3 border-t-2 border-dashed border-line" />
-      {rental.items.map((it) => (
-        <div key={it.categoryId} className="num flex items-center justify-between py-0.5 text-[13px]">
-          <span className="font-bold text-ink">
-            {it.code} — {it.name} <span className="text-inkmute">× {faNum(it.qty)}</span>
-          </span>
-          <span className="text-ink">{money(it.hourlyRate * it.qty * rental.hours)}</span>
-        </div>
-      ))}
-      <div className="my-3 border-t-2 border-dashed border-line" />
-      <ReceiptRow k="قیمت اصلی" v={<span className={rental.discount > 0 ? "line-through opacity-60" : ""}>{money(rental.subtotal)}</span>} />
-      {rental.discount > 0 && (
-        <ReceiptRow
-          k={<span className="font-extrabold text-ok">تخفیف {faNum(rental.discountRate)}٪</span>}
-          v={<span className="font-extrabold text-ok">− {money(rental.discount)}</span>}
-        />
-      )}
-      <div className="mt-1.5 flex items-center justify-between rounded-lg bg-coal px-3 py-2 text-white">
-        <span className="text-xs font-bold text-white/75">قابل پرداخت</span>
-        <span className="num font-display text-xl text-brand">{money(rental.total)}</span>
-      </div>
-      <div className="my-3 border-t-2 border-dashed border-line" />
-      <div className="space-y-1 text-[12px] text-inksoft">
-        <ReceiptRow k="وضعیت" v="فعال" />
-        <ReceiptPayment db={db} rental={rental} />
-        <ReceiptRow k="اپراتور" v={operatorName} />
-      </div>
-      <div className="mt-4 flex h-9 items-stretch justify-center gap-[2px]">
-        {bars.map((wide, i) => (
-          <span key={i} className={`bg-ink ${wide ? "w-[3px]" : "w-px"}`} />
-        ))}
-      </div>
-      <p className="num mt-1 text-center text-[10px] font-bold text-inkmute">#{faNum(rental.number)}</p>
-      <p className="mt-3 text-center text-[11px] font-bold text-inksoft">
-        این فاکتور را هنگام برگشت دوچرخه همراه داشته باشید
-      </p>
-    </div>
-  );
-}
-
-function ReceiptPayment({ db, rental }: { db: DB; rental: Rental }) {
   const paid = paymentService.paidFor(db, rental.id);
   const remaining = rental.total - paid;
   const lastPay = [...db.payments]
@@ -1029,21 +967,116 @@ function ReceiptPayment({ db, rental }: { db: DB; rental: Rental }) {
     .sort((a, b) => b.createdAt - a.createdAt)[0];
   const acc = lastPay ? db.settings.accounts.find((a) => a.id === lastPay.accountId) : null;
 
-  if (paid <= 0) {
-    return <ReceiptRow k="پرداخت" v="هنگام برگشت و تسویه" />;
-  }
   return (
-    <>
-      <ReceiptRow
-        k="پرداخت شده"
-        v={`${money(paid)}${acc ? ` — ${accountKindLabel(acc.kind)} · ${acc.name}` : ""}`}
-      />
-      {remaining > 0 ? (
-        <ReceiptRow k="مانده" v={<span className="font-extrabold text-danger">{money(remaining)}</span>} />
-      ) : (
-        <ReceiptRow k="مانده" v={<span className="font-extrabold text-ok">تسویه کامل</span>} />
-      )}
-    </>
+    <div
+      dir="rtl"
+      className="print-root print-receipt mx-auto w-[72mm] bg-white px-[4mm] pb-[3mm] pt-[2.5mm] text-[#161616] shadow-[0_10px_40px_rgba(20,20,15,0.25)] print:shadow-none"
+    >
+      {/* ── سربرگ ── */}
+      <header className="text-center">
+        <p className="text-[9px] font-extrabold tracking-[0.28em] text-[#3d3d3a]">
+          {S.receiptTitleSub}
+        </p>
+        <h1 className="font-display text-[27px] leading-9 text-[#111]">{S.receiptTitleMain}</h1>
+        <div className="mx-auto mt-1 h-[3px] w-12 border-y border-[#111]" />
+        <p className="num mt-1.5 text-[9.5px] font-bold text-[#3d3d3a]">
+          {fmtDateFull(rental.createdAt)} <span className="mx-1 text-[#9a9a94]">•</span> اجاره{" "}
+          <bdi dir="ltr">#{faNum(rental.number)}</bdi>
+        </p>
+      </header>
+
+      {/* ── مشتری ── */}
+      <div className="mt-2.5">
+        <p className="text-[9.5px] font-extrabold text-[#5c5c58]">نام مشتری</p>
+        <p className="font-display text-[19px] leading-7 text-[#111]">{cust?.name ?? "—"}</p>
+      </div>
+
+      {/* ── ساعت رفت / برگشت ── */}
+      <div className="mt-2 grid grid-cols-2 gap-1.5">
+        <div className="rounded-md border-[1.6px] border-[#111] px-1.5 pb-1.5 pt-1 text-center">
+          <p className="text-[9.5px] font-extrabold text-[#5c5c58]">ساعت رفت</p>
+          <p className="num font-display text-[23px] leading-8 text-[#111]">{fmtTime(startAt)}</p>
+        </div>
+        <div className="rounded-md border-[1.6px] border-[#111] bg-[#111] px-1.5 pb-1.5 pt-1 text-center">
+          <p className="text-[9.5px] font-extrabold text-white/70">ساعت برگشت</p>
+          <p className="num font-display text-[23px] leading-8 text-white">{fmtTime(rental.plannedEndAt)}</p>
+        </div>
+      </div>
+
+      {/* ── دوچرخه‌ها ── */}
+      <div className="mt-2.5">
+        <p className="border-b border-dashed border-[#8f8f8a] pb-0.5 text-[9.5px] font-extrabold text-[#5c5c58]">
+          دوچرخه‌ها
+        </p>
+        <ul className="mt-1 space-y-1">
+          {rental.items.map((it) => (
+            <li key={it.categoryId} className="flex items-center gap-2">
+              <span className="num font-display text-[20px] leading-6 text-[#111]">{faNum(it.qty)}</span>
+              <span className="text-[13px] font-black text-[#3d3d3a]">×</span>
+              <bdi
+                dir="ltr"
+                className="grid h-7 w-7 shrink-0 place-items-center rounded-md border-[1.6px] border-[#111] font-display text-[17px] leading-none text-[#111]"
+              >
+                {it.code}
+              </bdi>
+              <span className="text-[11.5px] font-bold text-[#3d3d3a]">{it.name}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* ── مبلغ‌ها ── */}
+      <div className="mt-2.5 border-t border-dashed border-[#8f8f8a] pt-1.5">
+        <div className="num flex items-center justify-between text-[11px] font-bold text-[#3d3d3a]">
+          <span>مبلغ اصلی</span>
+          <span className={rental.discount > 0 ? "text-[#8f8f8a] line-through" : "text-[#111]"}>
+            {faNum(rental.subtotal)}
+          </span>
+        </div>
+        {rental.discount > 0 && (
+          <div className="num mt-0.5 flex items-center justify-between text-[11px] font-extrabold text-[#111]">
+            <span>تخفیف {faNum(rental.discountRate)}٪</span>
+            <span>− {faNum(rental.discount)}</span>
+          </div>
+        )}
+        <div className="mt-1.5 flex items-center justify-between rounded-md bg-[#111] px-2.5 py-1.5">
+          <span className="text-[10.5px] font-extrabold text-white/75">مبلغ نهایی</span>
+          <span className="num font-display text-[21px] leading-7 text-white">
+            {faNum(rental.total)} <span className="text-[11px]">تومان</span>
+          </span>
+        </div>
+      </div>
+
+      {/* ── پرداخت ── */}
+      <div className="num mt-1.5 space-y-0.5 text-[11px] font-bold text-[#3d3d3a]">
+        <div className="flex items-center justify-between">
+          <span>پرداخت شده</span>
+          <span className="text-[#111]">{faNum(paid)}</span>
+        </div>
+        <div className="flex items-center justify-between">
+          <span>مانده</span>
+          <span className="text-[13px] font-black text-[#111]">{faNum(remaining)}</span>
+        </div>
+        <p className="pt-0.5 text-[10px] font-bold text-[#5c5c58]">
+          پرداخت: {acc ? accountKindLabel(acc.kind) : paid > 0 ? "—" : "هنگام برگشت"}
+        </p>
+      </div>
+
+      {/* ── قانون دیرکرد ── */}
+      <div className="mt-2.5 rounded-md bg-[#f2f2ee] px-2 py-1.5 print:bg-transparent print:p-0 print:pt-1 print:border-t print:border-dashed print:border-[#8f8f8a]">
+        <p className="text-[9px] font-black text-[#111]">قانون دیرکرد</p>
+        <p className="mt-0.5 text-[9px] font-bold leading-4 text-[#3d3d3a]">{S.receiptLateRule}</p>
+      </div>
+
+      {/* ── تشکر و تماس ── */}
+      <footer className="mt-2 text-center">
+        <p className="text-[11px] font-extrabold text-[#111]">{S.receiptThanks}</p>
+        <p className="mt-1.5 text-[9px] font-bold text-[#5c5c58]">برای اطلاعات بیشتر با ما تماس بگیرید</p>
+        <p className="num text-[15px] font-black tracking-wide text-[#111]" dir="ltr">
+          {S.receiptPhone}
+        </p>
+      </footer>
+    </div>
   );
 }
 

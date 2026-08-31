@@ -306,6 +306,12 @@ function makeDefaultSettings(): Settings {
       { id: "acc-cash", name: "نقدی", kind: "CASH", active: true },
       { id: "acc-card", name: "کارت به کارت", kind: "TRANSFER", active: true },
     ],
+    receiptTitleMain: "دز رکاب",
+    receiptTitleSub: "باشگاه دوچرخه سواری",
+    receiptThanks: "از همراهی شما سپاسگزاریم 🌱",
+    receiptPhone: "09122345544",
+    receiptLateRule:
+      "در صورت دیرکرد پس از ساعت برگشت، هزینه هر دقیقه دیرکرد با ۲ برابر نرخ معمول هر دقیقه محاسبه می‌شود.",
   };
 }
 

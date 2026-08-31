@@ -6,7 +6,7 @@ import { auditService } from "./auditService";
 import { authService, requirePerm } from "./authService";
 
 export const settingsService = {
-  updateGeneral(patch: Partial<Pick<Settings, "storeName" | "currency" | "graceMinutes" | "releaseDelayMinutes" | "lateMultiplier" | "prepMinutes" | "rewardThresholdHours" | "rewardDiscountPercent">>): void {
+  updateGeneral(patch: Partial<Pick<Settings, "storeName" | "currency" | "graceMinutes" | "releaseDelayMinutes" | "lateMultiplier" | "prepMinutes" | "rewardThresholdHours" | "rewardDiscountPercent" | "receiptTitleMain" | "receiptTitleSub" | "receiptThanks" | "receiptPhone" | "receiptLateRule">>): void {
     requirePerm(authService.requireUser(), "settings.manage");
     mutate((draft) => {
       if (patch.storeName !== undefined) {
@@ -45,6 +45,23 @@ export const settingsService = {
         }
         draft.settings.rewardDiscountPercent = patch.rewardDiscountPercent;
       }
+      /* متن‌های رسید حرارتی — خالی‌بودن بخش‌های ضروری مجاز نیست */
+      const pickTrim = (v: string | undefined, required: boolean): string | null => {
+        if (v === undefined) return null;
+        const t = v.trim();
+        if (required && !t) throw new Error("این بخش از رسید نمی‌تواند خالی باشد");
+        return t;
+      };
+      const tMain = pickTrim(patch.receiptTitleMain, true);
+      const tSub = pickTrim(patch.receiptTitleSub, false);
+      const tThanks = pickTrim(patch.receiptThanks, false);
+      const tPhone = pickTrim(patch.receiptPhone, true);
+      const tRule = pickTrim(patch.receiptLateRule, true);
+      if (tMain !== null) draft.settings.receiptTitleMain = tMain;
+      if (tSub !== null) draft.settings.receiptTitleSub = tSub;
+      if (tThanks !== null) draft.settings.receiptThanks = tThanks;
+      if (tPhone !== null) draft.settings.receiptPhone = tPhone;
+      if (tRule !== null) draft.settings.receiptLateRule = tRule;
       authService.withActor(draft, (d) =>
         auditService.log(d, "تغییر تنظیمات", "settings", "general", "تنظیمات عمومی به‌روزرسانی شد")
       );
