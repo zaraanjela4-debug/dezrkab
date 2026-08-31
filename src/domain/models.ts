@@ -15,6 +15,8 @@ export interface User {
 export interface SessionInfo {
   userId: string;
   loginAt: number;
+  /** آخرین اعتبارسنجی موفق — صرفاً تشخیصی؛ عمر نشست مطلقاً از loginAt حساب می‌شود */
+  lastValidatedAt?: number;
 }
 
 export interface Category {

@@ -61,6 +61,7 @@ export default function Login() {
   const [suErr, setSuErr] = useState("");
   const [suErrKey, setSuErrKey] = useState(0);
   const [suDone, setSuDone] = useState(false);
+  const [expiredNote] = useState(() => authService.takeExpiredNotice());
 
   function submit(e: FormEvent) {
     e.preventDefault();
@@ -161,6 +162,12 @@ export default function Login() {
           {suDone && !needsSetup ? (
             <div className="anim-pop mb-4 rounded-xl border border-ok/30 bg-oksoft px-4 py-3 text-xs font-bold text-ok">
               حساب مدیر ساخته شد — حالا با نام کاربری و رمز خود وارد شوید
+            </div>
+          ) : null}
+
+          {expiredNote && !needsSetup && !suDone ? (
+            <div className="anim-pop mb-4 rounded-xl border border-warn/40 bg-warnsoft px-4 py-3 text-xs font-bold text-[#b45309]">
+              نشست شما به پایان رسید — لطفاً دوباره وارد شوید
             </div>
           ) : null}
 

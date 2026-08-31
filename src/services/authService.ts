@@ -1,8 +1,30 @@
 /** احراز هویت داخلی + دسترسی‌ها — نشست پایدار، بدون رمز خام در state */
-import type { DB, Role, User } from "../domain/models";
-import { getDB, mutate, sessionStore } from "../storage/storage";
+import type { DB, Role, SessionInfo, User } from "../domain/models";
+import { getDB, lockoutStore, mutate, sessionStore, StorageWriteError } from "../storage/storage";
+import { faNum } from "../utils/format";
 import { hashPassword, verifyPassword } from "../utils/hash";
 import { auditService } from "./auditService";
+
+/* ---------------- سیاست‌های نشست و ورود — فقط از همین‌جا پیکربندی می‌شود ---------------- */
+
+/** عمر مطلق نشست: ۱۲ ساعت پس از ورود — باز بودن مرورگر تمدیدش نمی‌کند */
+export const SESSION_LIFETIME_MS = 12 * 3_600_000;
+/** حداکثر تلاش ناموفق پیاپی پیش از قفل */
+export const MAX_FAILED_ATTEMPTS = 5;
+/** مدت قفل ورود پس از عبور از حد مجاز */
+export const LOCKOUT_DURATION_MS = 15 * 60_000;
+
+/**
+ * تشخیص‌های توسعه — فقط واقعیت‌های امن (پیدا شدن کاربر، فعال بودن، نتیجه راستی‌آزمایی،
+ * ایجاد/ذخیره نشست). هرگز رمز یا هش رمز را ثبت نمی‌کند و در build محصول خاموش است.
+ */
+function authDiag(event: string, facts: Record<string, boolean | number | string>): void {
+  const env = (import.meta as unknown as { env?: { DEV?: boolean } }).env;
+  if (env?.DEV) console.info(`[auth] ${event}`, facts);
+}
+
+/** اطلاع «نشست منقضی شد» برای نمایش یک‌باره در صفحه ورود */
+let expiredNotice = false;
 
 export type Perm =
   | "rental.create"
@@ -58,19 +80,85 @@ export function requirePerm(user: User | null, perm: Perm): void {
 export const authService = {
   login(username: string, password: string): User {
     const u = (username || "").trim().toLowerCase();
+    const now = Date.now();
+
+    /* ---------- قفل تلاش‌های ناموفق — پیش از هر بررسی رمز ---------- */
+    const map = lockoutStore.read();
+    const entry = map[u];
+    if (entry && entry.lockedUntil > now) {
+      const mins = Math.ceil((entry.lockedUntil - now) / 60_000);
+      authDiag("login-blocked", { locked: true, remainingMin: mins });
+      throw new Error(
+        `تلاش‌های ناموفق بیش از حد مجاز است. لطفاً ${faNum(mins)} دقیقه دیگر دوباره تلاش کنید.`
+      );
+    }
+
+    /* ---------- یافتن کاربر و راستی‌آزمایی رمز ---------- */
     const user = getDB().users.find(
       (x) => x.username.toLowerCase() === u && x.active
     );
-    if (!user || !verifyPassword(password, user.passHash)) {
+    const verifyOk = !!user && verifyPassword(password, user.passHash);
+    authDiag("login-attempt", {
+      userFound: !!user,
+      userActive: !!user && user.active,
+      verifyOk,
+    });
+
+    if (!user || !verifyOk) {
+      /* پیام یکسان برای کاربر ناموجود و رمز نادرست — افشای وجود حساب ممنوع */
+      const count = (entry?.count ?? 0) + 1;
+      if (count >= MAX_FAILED_ATTEMPTS) {
+        map[u] = { count: 0, lockedUntil: Date.now() + LOCKOUT_DURATION_MS };
+        lockoutStore.write(map);
+        authDiag("lockout-set", { attempts: count });
+        throw new Error(
+          "تلاش‌های ناموفق بیش از حد مجاز است. لطفاً ۱۵ دقیقه دیگر دوباره تلاش کنید."
+        );
+      }
+      map[u] = { count, lockedUntil: 0 };
+      lockoutStore.write(map);
       throw new Error("نام کاربری یا رمز عبور نادرست است");
     }
-    sessionStore.write({ userId: user.id, loginAt: Date.now() });
+
+    /* ---------- موفق: پاک‌سازی قفل + ایجاد نشست پایدار و تأییدشده ---------- */
+    if (entry) {
+      delete map[u];
+      lockoutStore.write(map);
+      authDiag("lockout-cleared", { reason: "success" });
+    }
+    const session: SessionInfo = {
+      userId: user.id,
+      loginAt: now,
+      lastValidatedAt: now,
+    };
+    const persisted = sessionStore.write(session);
+    authDiag("session", { created: true, persisted });
+    if (!persisted) {
+      throw new Error("ورود انجام نشد — ذخیره‌سازی نشست در مرورگر ممکن نیست");
+    }
+    if (sessionStore.read()?.userId !== user.id) {
+      throw new Error("ورود انجام نشد — نشست ذخیره‌شده قابل خواندن نیست");
+    }
+
+    /*
+      ثبت رویداد ورود — بهترین تلاش.
+      شکست persist نباید کاربر تازه‌احراز‌هویت‌شده را پشت در نگه دارد؛
+      نشستِ تأییدشده همین حالا پایدار شده است.
+    */
     const actorId = user.id;
-    mutate((draft) => {
-      draft.__actor = actorId;
-      auditService.log(draft, "ورود به سامانه", "auth", user.id, `${user.name} وارد شد`);
-      delete draft.__actor;
-    });
+    try {
+      mutate((draft) => {
+        draft.__actor = actorId;
+        auditService.log(draft, "ورود به سامانه", "auth", user.id, `${user.name} وارد شد`);
+        delete draft.__actor;
+      });
+    } catch (e) {
+      if (e instanceof StorageWriteError) {
+        authDiag("audit-skipped", { reason: "persist-failed" });
+      } else {
+        throw e;
+      }
+    }
     return user;
   },
 
@@ -78,16 +166,47 @@ export const authService = {
     sessionStore.clear();
   },
 
-  /** اگر نشست به کاربر غیرفعال/حذف‌شده اشاره کند، غیرمعتبر است */
-  currentUser(): User | null {
+  /**
+   * اعتبارسنجی متمرکز نشست — تنها مرجع تصمیم «کاربر وارد است یا نه».
+   * انقضای مطلق ۱۲ ساعته، وجود کاربر و فعال‌بودن او بررسی می‌شود؛
+   * نشستِ باطل همان لحظه پاک می‌شود.
+   */
+  validateSession(): User | null {
     const s = sessionStore.read();
     if (!s) return null;
-    const user = getDB().users.find((u) => u.id === s.userId && u.active);
-    if (!user) {
+    const now = Date.now();
+    if (now - s.loginAt > SESSION_LIFETIME_MS) {
       sessionStore.clear();
+      expiredNotice = true;
+      authDiag("session-expired", { ageMin: Math.round((now - s.loginAt) / 60_000) });
       return null;
     }
+    const user = getDB().users.find((x) => x.id === s.userId && x.active);
+    if (!user) {
+      sessionStore.clear();
+      authDiag("session-invalidated", { reason: "user-missing-or-inactive" });
+      return null;
+    }
+    if (!s.lastValidatedAt || now - s.lastValidatedAt > 60_000) {
+      sessionStore.write({ ...s, lastValidatedAt: now }); // بهترین تلاش؛ عمر نشست تغییر نمی‌کند
+    }
     return user;
+  },
+
+  hasSession(): boolean {
+    return sessionStore.read() !== null;
+  },
+
+  /** اطلاع انقضای نشست — یک‌بار مصرف برای صفحه ورود */
+  takeExpiredNotice(): boolean {
+    const v = expiredNotice;
+    expiredNotice = false;
+    return v;
+  },
+
+  /** اگر نشست به کاربر غیرفعال/حذف‌شده اشاره کند یا منقضی شده باشد، غیرمعتبر است */
+  currentUser(): User | null {
+    return this.validateSession();
   },
 
   requireUser(): User {

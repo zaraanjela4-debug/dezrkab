@@ -77,6 +77,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     return authService.currentUser();
   }, [db, tick]);
 
+  /* اعتبارسنجی دوره‌ای نشست — انقضای ۱۲ ساعته یا غیرفعال‌شدن کاربر وسط کار */
+  useEffect(() => {
+    const t = window.setInterval(() => {
+      const had = authService.hasSession();
+      const u = authService.validateSession();
+      if (had && !u) setTick((x) => x + 1); // نشست باطل شد → بازگشت به صفحه ورود
+    }, 60_000);
+    return () => window.clearInterval(t);
+  }, []);
+
   const doLogin = useCallback((username: string, password: string) => {
     authService.login(username, password);
     setTick((t) => t + 1);

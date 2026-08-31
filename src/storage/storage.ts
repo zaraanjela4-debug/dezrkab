@@ -90,6 +90,7 @@ export const KEYS = {
   session: "pedal.session.v1",
   prefs: "pedal.prefs.v1",
   autobackup: "pedal.autobackup.v1",
+  lockout: "pedal.lockout.v1",
 } as const;
 
 /* ------------------------------ داده اولیه ------------------------------ */
@@ -498,11 +499,35 @@ export const sessionStore = {
       return null;
     }
   },
-  write(s: SessionInfo): void {
-    adapter.write(KEYS.session, JSON.stringify(s));
+  /** نتیجه واقعی persist — نشستِ ذخیره‌نشده نباید «موفق» تلقی شود */
+  write(s: SessionInfo): boolean {
+    return adapter.write(KEYS.session, JSON.stringify(s)).ok;
   },
   clear(): void {
     adapter.remove(KEYS.session);
+  },
+};
+
+/* ------------------- محدودیت تلاش ورود (جدا از داده تجاری) ------------------- */
+
+export interface LockoutEntry {
+  count: number;
+  lockedUntil: number;
+}
+
+export const lockoutStore = {
+  read(): Record<string, LockoutEntry> {
+    const raw = adapter.read(KEYS.lockout);
+    if (!raw) return {};
+    try {
+      const p = JSON.parse(raw) as Record<string, LockoutEntry>;
+      return p && typeof p === "object" && !Array.isArray(p) ? p : {};
+    } catch {
+      return {};
+    }
+  },
+  write(map: Record<string, LockoutEntry>): void {
+    adapter.write(KEYS.lockout, JSON.stringify(map));
   },
 };
 
