@@ -346,10 +346,19 @@ export default function NewRental() {
   });
 
   /* ------------------------------- وضعیت مراحل ------------------------------- */
-  const phoneState: StepState = customerReady ? "done" : "active";
-  const durationState: StepState = !customerReady ? "locked" : stage === "duration" ? "active" : "done";
-  const bikesState: StepState = hours === null ? "locked" : stage === "confirm" ? "done" : "active";
-  const confirmState: StepState = stage === "confirm" ? "active" : "locked";
+  /*
+    وضعیت هر کارت فقط از ترتیبِ مرحلهٔ فعال (stage) به دست می‌آید — نه از کامل‌بودن داده‌ها.
+    اگر از customerReady مشتق می‌شد، با تایپ اولین حرفِ نام خانوادگی کارت تلفن «done» شده،
+    ورودیِ دارای focus از DOM حذف می‌شد و فرم وسط تایپ می‌پرید. پیشروی فقط با Enter است.
+  */
+  const STAGE_ORDER: Record<Stage, number> = { phone: 0, duration: 1, bikes: 2, confirm: 3 };
+  const stageIdx = STAGE_ORDER[stage];
+  const stepState = (i: number): StepState =>
+    i < stageIdx ? "done" : i === stageIdx ? "active" : "locked";
+  const phoneState = stepState(0);
+  const durationState = stepState(1);
+  const bikesState = stepState(2);
+  const confirmState = stepState(3);
   const durLabel = hours !== null
     ? S.durations.find((d) => d.hours === hours)?.label ?? durationLabel(hours)
     : null;

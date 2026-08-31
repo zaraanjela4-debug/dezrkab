@@ -252,6 +252,7 @@ function seedDB(): DB {
 
   return {
     rev: 1,
+    m3Cleaned: true, // نصب تازه، پس از M3 است — نیازی به پاک‌سازی حساب نمایشی ندارد
     seq: { rental: 1004 },
     /* بدون هیچ حساب پیش‌فرض — مدیر اولیه از «راه‌اندازی اولیه» با رمز انتخابی خود ساخته می‌شود */
     users: [],
@@ -345,16 +346,20 @@ function normalizeDB(p: DB): DB {
   }
 
   /*
-    مهاجرت امنیتی M3 (هم هنگام بارگذاری و هم هنگام بازیابی پشتیبان):
-    حساب‌های نمایشیِ قدیمی با رمز قابل‌پیش‌بینی (manager/1234 و seller/1234) حذف می‌شوند.
-    حساب‌های واقعی — حتی با نام کاربری مشابه — چون هش رمز متفاوتی دارند دست نمی‌خورند.
+    مهاجرت امنیتی M3 — فقط یک‌بار برای هر پایگاه داده:
+    حساب‌های نمایشیِ قدیمی (manager/1234 و seller/1234) صرفاً در داده‌های پیش از M3 حذف می‌شوند.
+    نشانِ m3Cleaned تضمین می‌کند این فیلتر در بارگذاری‌های بعدی هرگز تکرار نشود —
+    وگرنه حسابی که کاربر در راه‌اندازی اولیه با همین ترکیب ساخته بود، بعد از هر reload حذف می‌شد.
   */
-  const demoHash = hashPassword("1234");
-  const users = (p.users ?? []).filter(
-    (u) =>
-      !(u.passHash === demoHash && (u.username === "manager" || u.username === "seller"))
-  );
-  return { ...p, users, customers, rentals, settings };
+  let users = p.users ?? [];
+  if (p.m3Cleaned !== true) {
+    const demoHash = hashPassword("1234");
+    users = users.filter(
+      (u) =>
+        !(u.passHash === demoHash && (u.username === "manager" || u.username === "seller"))
+    );
+  }
+  return { ...p, m3Cleaned: true, users, customers, rentals, settings };
 }
 
 /* --------------------------- store با snapshot --------------------------- */

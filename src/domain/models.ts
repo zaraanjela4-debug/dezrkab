@@ -196,6 +196,8 @@ export interface Settings {
 
 export interface DB {
   rev: number;
+  /** متادیتای داخلی — انجام‌شدن پاک‌سازی یک‌بارهِ امنیتی M3 (جلوگیری از تکرار مهاجرت) */
+  m3Cleaned?: boolean;
   seq: { rental: number };
   users: User[];
   categories: Category[];
